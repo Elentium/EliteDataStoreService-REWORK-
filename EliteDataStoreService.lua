@@ -1,5 +1,5 @@
 --[[
-	EliteDataStoreService V1.3.0
+	EliteDataStoreService V1.4.0
 	
 	[by iamnotultra3 a.k.a Elite]
 	
@@ -40,13 +40,18 @@
 	--------------------------------------------------------
 	• Prioritize Player Saves on Shutdown: During the game:BindToClose() event, set a flag in your saving logic to ensure all remaining player data saves use the prioritize = true argument. This allows player data saves to jump ahead of any lower-priority background tasks in the queue.
 	• Check the success Flag: Always capture and check the second return value (success). If it's false, it means the underlying Roblox API call failed (e.g., internal service error, 500 error, etc.). You should log this and potentially revert any game-state changes associated with the failed operation.
+	
+	--------------------------------------------------------
+	Github
+	--------------------------------------------------------
+	• "https://github.com/Elentium/EliteDataStoreService-REWORK-"
 ]]
 --!strict
 
--- My Signal module
-local FreeRunnerThread = nil :: thread?
+local FreeRunnerThread = nil :: thread? -- the free thread variable we will use to then reuse threads when needed
 
 local function AcquireFreeThreadAndCallEventHandler(fn: (...any) -> (), ...: any)
+	-- take the free thread and free it only after the function execution is finished
 	local Thread = FreeRunnerThread
 	FreeRunnerThread = nil
 	fn(...)
@@ -57,15 +62,21 @@ end
 local function RunEventHandlerInFreeThread()
 	while true do
 		AcquireFreeThreadAndCallEventHandler(coroutine.yield())
+		-- wait for the coroutine to be resumed
+		-- with function and params data to be sent in the `AcquireFreeThreadAndCallEventHandler`
+		-- coroutine.yield() returns whatever the coroutine.resume(co, ...) sends so that is how it works
 	end
 end
 
+-- there were `Defer` and `Spawn` functions before but i later removed the `Defer` function so that is why there is a helper function
 local function HelperThreadSpawner(taskfn, fn: (...any) -> (), ...: any)
+	-- if there is no Free Thread = create a new one and resume it
 	if not FreeRunnerThread then
 		FreeRunnerThread = coroutine.create(RunEventHandlerInFreeThread)
-		coroutine.resume(FreeRunnerThread :: any)
+		coroutine.resume(FreeRunnerThread :: any)-- start the coroutine loop
 	end
-	taskfn(FreeRunnerThread :: any, fn, ...)
+
+	taskfn(FreeRunnerThread :: any, fn, ...)-- we set the type to any to silenece strict type checker
 end
 
 local function Spawn(fn: (...any) -> (), ...: any)
@@ -81,145 +92,190 @@ local function GetInstanceFromPath(path: string): Instance?
 	return current
 end
 
----------------------------------------------------------------
--- Linked List Implementation
----------------------------------------------------------------
+local SignalU do
+	local Connection = {}
+	Connection.__index = Connection
 
-local Connection = {}
-Connection.__index = Connection
+	function Connection:Disconnect()
+		if not self.Connected then return end
+		self.Connected = false
 
-function Connection:Disconnect()
-	if not self.Connected then return end
-	self.Connected = false
+		local parent = self.Parent
+		if not parent then return end
 
-	local parent = self.Parent
-	if not parent then return end
-
-	if parent.Head == self then
-		parent.Head = self.Next
-	else
-		local prev = parent.Head
-		while prev and prev.Next ~= self do
-			prev = prev.Next
+		-- since the connection is disconnected = connect previous connection with the next one
+		-- if the connection is at the head = replace the head with the next connection
+		if self.Prev then
+			self.Prev.Next = self.Next
+		else
+			parent.Head = self.Next
 		end
-		if prev then
-			prev.Next = self.Next
+
+		if self.Next then
+			self.Next.Prev = self.Prev
 		end
+
+		-- cleanup
+		self.Next = nil :: any
+		self.Prev = nil :: any
+		self.Parent = nil :: any
+		self.Listener = nil :: any
+		-- the :: any is for silencing the strict type checker
 	end
-end
 
-local Signal = {}
-Signal.__index = Signal
+	local Signal = {}
+	Signal.__index = Signal
 
-local function CreateSignal<T...>(_, strictcheck: boolean?, ...: T...)
-	local self = setmetatable({}, Signal)
-	self.StrictCheck = strictcheck == true
-	self.Head = nil :: Connection?
-	return (self :: any) :: Signal<T...>
-end
 
-function Signal:Connect(fn: (...any) -> ())
-	local connection = setmetatable({}, Connection)
-	connection.Listener = fn
-	connection.Connected = true
-	connection.Parent = self
-	connection.Next = self.Head
-	self.Head = connection
-	return connection
-end
+	local function CreateSignal<T...>(_, strictcheck: boolean?, ...: T...)
+		-- create a new signal object
+		local self = setmetatable({}, Signal)
+		-- we do `strictcheck == true` to ensure the value is a boolean
+		self.StrictCheck = strictcheck == true
+		self.Head = nil :: Connection?
+		return (self :: any) :: Signal<T...>-- silence the strict type checker with :: any
+	end
 
-function Signal:Once(fn: (...any) -> ())
-	local conn
-	conn = self:Connect(function(...)
-		fn(...)
-		conn:Disconnect()
-	end)
-	return conn
-end
+	function Signal:Connect(fn)
+		-- create a connetion object
+		local connection = setmetatable({}, Connection)
+		connection.Listener = fn
+		connection.Connected = true
+		connection.Parent = self
 
-function Signal:ConnectParallel(fn: (...any) -> ())
-	if self.StrictCheck then
-		local scriptPath = debug.info(coroutine.running(), 2, "s")
-		if scriptPath then
-			local scriptInstance = GetInstanceFromPath(scriptPath)
-			if scriptInstance and scriptInstance:GetActor() == nil then
-				warn(`Cannot use ConnectParallel in non-parallel environment ({scriptPath})`)
-				return (nil :: any) :: Connection
+		-- since we add connections to the end = the newest added connection should be at the tail
+		if self.Tail then
+			-- if a tail already existed = set the current tail's `Next` reference to the new connection
+			-- set the new connection's `Prev` reference to the current Tail
+			-- set the new tail as the new connection
+			self.Tail.Next = connection
+			connection.Prev = self.Tail
+			self.Tail = connection
+		else
+			-- tail did not exist = instant set
+			-- we also set the head as the new connection because if there is no tail = there is no head
+			self.Head = connection
+			self.Tail = connection
+		end
+
+		-- return the connection
+		return connection
+	end
+
+
+	function Signal:Once(fn: (...any) -> ())
+		-- store the connection variable and disconnect it as soon as the signal is fired
+		local conn
+
+		conn = self:Connect(function(...)
+			fn(...)
+			conn:Disconnect()
+		end)
+
+		return conn
+	end
+
+	function Signal:ConnectParallel(fn: (...any) -> ())
+
+		if self.StrictCheck then
+			-- if the strict check is on = check if the script that uses the module is running under an actor
+			-- 2 is the level of how deep to check, the level 1 is the module itself so we do not want this, level 2 is the script that required the module
+			-- "s" of debug.info returns a script path like "ServerScriptService.Script"
+			local scriptPath = debug.info(coroutine.running(), 2, "s")
+			if scriptPath then
+				local scriptInstance = GetInstanceFromPath(scriptPath)
+				-- check if the script is running under an Actor
+				if scriptInstance and scriptInstance:GetActor() == nil then
+					warn(`Cannot use ConnectParallel in non-parallel environment ({scriptPath})`)
+					return (nil :: any) :: Connection
+				end
 			end
 		end
-	end
-	return self:Connect(function(...)
-		task.desynchronize()
-		fn(...)
-	end)
-end
 
-function Signal:Fire(...: any)
-	local node = self.Head
-	while node do
-		if node.Connected then
-			node.Listener(...)
+		return self:Connect(function(...)
+			task.desynchronize()
+			fn(...)
+		end)
+	end
+
+	function Signal:Fire(...: any)
+		-- simple linked list iteration
+		local node = self.Head
+		while node do
+			if node.Connected then
+				node.Listener(...)
+			end
+			node = node.Next
 		end
-		node = node.Next
 	end
-end
 
-function Signal:FireAsync(...: any)
-	local node = self.Head
-	while node do
-		if node.Connected then
-			Spawn(node.Listener, ...)
+	function Signal:FireAsync(...: any)
+		-- same iteration, but this time we run each listener in a separate thread
+		local node = self.Head
+		while node do
+			if node.Connected then
+				Spawn(node.Listener, ...)
+			end
+			node = node.Next
 		end
-		node = node.Next
 	end
+
+	function Signal:Wait(): (...any)
+		-- yield the current thread until a signal has been fired
+		local co = coroutine.running()
+		local conn
+		conn = self:Connect(function(...)
+			conn:Disconnect()
+			-- resume the coroutine with the received data
+			coroutine.resume(co, ...)
+		end)
+		return coroutine.yield()
+	end
+
+	function Signal:DisconnectAll()
+		-- we simply get rid of the head and tail references, and the connections automatically get garbage collected
+		self.Head = nil
+		self.Tail = nil
+	end
+
+	function Signal:Destroy()
+		-- fully clear the signal
+		self.Head = nil
+		self.Tail = nil
+		self.StrictCheck = nil :: any
+		-- now you cannot call any of the methods since the signal is not affected by the metatable anymore
+		setmetatable(self, nil)
+	end
+
+	-- Type annotations
+
+	export type Connection = {
+		Disconnect: (self: Connection) -> (),
+		Connected: boolean,
+		Parent: any, -- here we do `any` instead of `Signal` because the strict type checker warns about Recursive type thing
+		Next: Connection?,
+		Listener: (...any) -> ()
+	}
+
+	export type Signal<T...=()> = {
+		Connect: (self: Signal<T...>, fn: (T...) -> ()) -> Connection,
+		Once: (self: Signal<T...>, fn: (T...) -> ()) -> Connection,
+		ConnectParallel: (self: Signal<T...>, fn: (T...) -> ()) -> Connection,
+		Fire: (self: Signal<T...>, T...) -> (),
+		FireAsync: (self: Signal<T...>, T...) -> (),
+		Wait: (self: Signal<T...>) -> (T...),
+		DisconnectAll: (self: Signal<T...>) -> (),
+		Destroy: (self: Signal<T...>) -> ()
+	}
+
+	SignalU = setmetatable({
+		IsSignal = function(object: any)
+			return getmetatable(object) == Signal
+		end,
+	}, {
+		__call = CreateSignal -- __call is being triggered whenever we try to call the table as a function
+	})
 end
-
-function Signal:Wait(): (...any)
-	local co = coroutine.running()
-	local conn
-	conn = self:Connect(function(...)
-		conn:Disconnect()
-		coroutine.resume(co, ...)
-	end)
-	return coroutine.yield()
-end
-
-function Signal:DisconnectAll()
-	self.Head = nil
-end
-
-function Signal:Destroy()
-	self.Head = nil
-	self.StrictCheck = nil :: any
-	setmetatable(self, nil)
-end
-
-export type Connection = {
-	Disconnect: (self: Connection) -> (),
-	Connected: boolean,
-	Parent: any,
-	Next: Connection?,
-	Listener: (...any) -> ()
-}
-
-export type Signal<T...=()> = {
-	Connect: (self: Signal<T...>, fn: (T...) -> ()) -> Connection,
-	Once: (self: Signal<T...>, fn: (T...) -> ()) -> Connection,
-	ConnectParallel: (self: Signal<T...>, fn: (T...) -> ()) -> Connection,
-	Fire: (self: Signal<T...>, T...) -> (),
-	FireAsync: (self: Signal<T...>, T...) -> (),
-	Wait: (self: Signal<T...>) -> (T...),
-	DisconnectAll: (self: Signal<T...>) -> (),
-	Destroy: (self: Signal<T...>) -> ()
-}
-
-local SignalU = setmetatable({
-	IsSignal = function(object: any)
-		return getmetatable(object) == Signal
-	end,
-}, { __call = CreateSignal })
-
-
 ---------------------------------------------------------------------------------------------
 
 --== Variables ==--
@@ -229,25 +285,70 @@ local RunService = game:GetService("RunService")
 local EliteDataStoreService = {}
 EliteDataStoreService.TotalRequests = 0
 
-
+-- we assign those 1, true, nil for type annotations
+-- the first false is `StrictModeEnabled`, we do not need strict mode as it only checks the ConnectParallel while we do not use it here
 local RequestProcessed = SignalU(false, 1 :: number, true :: boolean, nil :: any)
 
+-- the main processor that handles datastore requests with budget + key rate limiting
 local Processor = {
-	IterationCycle = 0.75,
+	IterationCycle = 0.75,-- how often should the processor iterate through the queues
 	
+	-- the main queue, it is being processed the last(first goes DroppedRequests, after that PriorityQueue)
+	-- by default, the requests get transfered to the main queue
 	Queue = { Head = nil, Tail = nil, Count = 0 },
+	-- the second queue, it is being processed before the main queue as the requests here are prioritized
+	-- to prioritize a certain request, every EliteDataStore or EliteOrderedDataStore method's last parameter is `Prioritize`
+	-- so you just set the last param to true
+	-- example:
+	--[[
+		-- params:
+		-- Key: string (in this case: "Scoreplayer1")
+		-- Value: any (in this case: 100)
+		-- UserIds: { number? }? (in this case: nil)
+		-- Options: DataStoreSetOptions? (in this case: nil)
+		-- Prioritize: boolean? (in this case: true, since we want to prioritize the request)
+		EliteDataStore:SetAsync("Scoreplayer1", 100, nil, nil, true)
+	]]
 	PriorityQueue = { Head = nil, Tail = nil, Count = 0 },
+	-- the third queue, it is being processed the first, but it is rarely having any requests
+	-- the only time there are some requests in the queue,
+	-- is when after acquiring a key, the budget gets exhausted
+	-- since this module design values safety, we do not call the request if there is any safety concerns
 	DroppedRequests = { Head = nil, Tail = nil, Count = 0 },
-
-	KeyRegistry = {},
-	KeyWaiters = {},
-
+	
+	-- the { Head, Tail, Count } structure in the queues is a linked-list implementation
+	-- if you want to learn linked lists, then consider watching this video "https://www.youtube.com/watch?v=DTEraIOfoS0"
+	
+	-- `KeyRegistry` holds per-datastore per-key data for key locking
+	-- every key data structure is { CanRead: boolean, CanWrite: boolean, RefCount: number }
+	-- CanRead is for stuff like GetAsync, GetVersionAsync, GetVersionAtTimeAsync
+	-- if you try to read a key multiple times at the same time, the DataStore will throttle the requests and even error
+	-- so the module ensures that there is only 1 per-key read/write operation at a time
+	-- the `RefCount` stores how many references exist for the key data,
+	-- when the RefCount is 0, it means there is not any read/write operation for the key and it removes the key data to free up memory
+	KeyRegistry = {} :: { [DataStore | OrderedDataStore]: {[string]: { CanRead: boolean, CanWrite: boolean, RefCount: number }} },
+	-- `KeyWaiters` holds per-datastore per-key per-mode coroutine waiters
+	-- as i explained above, if certain key cannot Read or Write and there is an incoming request:
+	-- it inserts the request to certain mode coroutine waiters
+	-- whenever another request is finished = it resumes the first request in the queue and the chain continues
+	-- however there might be an edge case where after we waited for other requests to preform a per-key operation = the budget got exhausted,
+	-- so we enqueue the request to the `DroppedRequests` queue so the request gets safely processed in the next IterationCycle
+	KeyWaiters = {} :: { [DataStore | OrderedDataStore]: {[string]: { CanRead: { thread? }, CanWrite: { thread? }, ReadWrite: { thread? } }} },
+	
+	-- Determines whether the main queue is being processed or not
 	QueueProcessing = false :: boolean,
+	-- Determines whether the priority queue is being processed or not
 	PriorityQueueProcessing  = false :: boolean,
+	-- Determines whether the dropped requests queue is being processed or not
 	DroppedRequestsProcessing = false :: boolean,
-
+	
+	-- If this is set to true, it means none of the queues are being processed and the processor is free
 	FinishedAll = true :: boolean,
 }
+
+-- Stores per-datastore method handlers
+-- each handler accepts a RequestInfo table and returns a success, result OR success, err
+-- the handlers are called only after all rate validations have passed and the request is safe to call
 local Requests = {
 	GetAsync = function(RequestInfo)
 		local key = RequestInfo.Key
@@ -376,8 +477,12 @@ local Requests = {
 
 --== Helper functions ==--
 
+-- Checks whether the key is valid for write/read/readwrite operation
 local function IsKeyValid(Datastore, Key, mode)
+	-- if key is not provided = return true as the request does not require any key handling
 	if Key == nil then return true end
+	
+	-- fetch info
 	local info = Processor.KeyRegistry[Datastore][Key]
 	if not info then
 		info = { CanRead = true, CanWrite = true, RefCount = 0 }
@@ -385,6 +490,7 @@ local function IsKeyValid(Datastore, Key, mode)
 		return true
 	end
 	
+	-- return result
 	if mode == "ReadWrite" then
 		return info.CanRead and info.CanWrite
 	else
@@ -392,22 +498,25 @@ local function IsKeyValid(Datastore, Key, mode)
 	end
 end
 
+-- safe version of AcquireKeyLock, if a key is not valid for the request, yields until the lock is freed
 local function WaitForKeyAndAcquireLock(Datastore, Key, mode)
+	-- fetch registry
 	local info = Processor.KeyRegistry[Datastore][Key]
 	if not info then
 		info = { CanRead = true, CanWrite = true, RefCount = 0 }
 		Processor.KeyRegistry[Datastore][Key] = info
 	end
-
+	
 	local currentCoroutine = coroutine.running()
-
+	
 	while not IsKeyValid(Datastore, Key, mode) do
-		Processor.KeyWaiters[Datastore][Key] = Processor.KeyWaiters[Datastore][Key] or {}
-		table.insert(Processor.KeyWaiters[Datastore][Key], currentCoroutine)
+		-- if the key is not valid = enqueue the coroutine and yield until the key is available
+		Processor.KeyWaiters[Datastore][Key] = Processor.KeyWaiters[Datastore][Key] or { CanRead = {}, CanWrite = {}, ReadWrite = {} }
+		table.insert(Processor.KeyWaiters[Datastore][Key][mode], currentCoroutine)
 		coroutine.yield()
 	end
-
-
+	
+	-- the key is valid = acquire the lock
 	info.RefCount += 1
 	if mode == "ReadWrite" then
 		info.CanRead, info.CanWrite = false, false
@@ -416,30 +525,55 @@ local function WaitForKeyAndAcquireLock(Datastore, Key, mode)
 	end
 end
 
+-- Helper function to clean up empty key's waiters data
+local function CleanupKeyWaiters(DataStore, Key)
+	-- fetch waiters
+	local Waiters = Processor.KeyWaiters[DataStore][Key]
+	if Waiters then
+		-- iterate through every mode table, if at least one table has a waiting coroutine = do not cleanup
+		-- otherwise we just clean up the data
+		local AllEmpty = true
+		for _, v in pairs(Waiters) do
+			if #v ~= 0 then
+				AllEmpty = false
+				break
+			end
+		end
+		if AllEmpty then
+			Processor.KeyWaiters[DataStore][Key] = nil
+			Waiters = nil :: any
+		end
+	end
+end
+
+-- Releases the key lock to free up access for another same key-mode requests
 local function ReleaseKeyLock(Datastore, Key, mode)
 	local info = Processor.KeyRegistry[Datastore][Key]
+	-- if the info somehow does not exist = return, since there is nothing to release
 	if not info then return end
-
+	
+	-- remove the reference count and if its 0 = clean up registry
 	info.RefCount -= 1
 	if info.RefCount <= 0 then
 		Processor.KeyRegistry[Datastore][Key] = nil
 	else
+		-- otherwise just set CanRead & CanWrite to true
 		if mode == "ReadWrite" then
 			info.CanRead, info.CanWrite = true, true
 		else
 			info[mode] = true
 		end
 	end
-
-	local waiters = Processor.KeyWaiters[Datastore][Key]
+	
+	-- fetch waiters
+	local waiters = (Processor.KeyWaiters[Datastore][Key] or {})[mode] :: { thread }?
 	if waiters and #waiters > 0 then
+		-- resume the next in queue waiter
 		local waitingCo = table.remove(waiters, 1)
 
-		if #waiters == 0 then
-			Processor.KeyWaiters[Datastore][Key] = nil
-		end
+		CleanupKeyWaiters(Datastore, Key)
 
-		coroutine.resume((waitingCo :: any))
+		coroutine.resume(waitingCo :: thread)
 	end
 end
 
@@ -448,7 +582,7 @@ local function Enqueue(Queue, Request)
 	local NewNode = {
 		Request = Request,
 		Next = nil,
-	} :: QueueNode
+	}
 
 	if Queue.Tail then
 		-- If the queue is not empty, attach the new node to the current tail
@@ -474,7 +608,7 @@ local function Dequeue(Queue): Request?
 	-- 1. Get the Request from the Head
 	local Request = Queue.Head.Request
 
-	-- 2. Move the Head pointer to the next node (O(1))
+	-- 2. Move the Head pointer to the next node
 	local NewHead = Queue.Head.Next
 
 	-- 3. Clear the reference to aid garbage collection
@@ -488,7 +622,7 @@ local function Dequeue(Queue): Request?
 		Queue.Tail = nil
 	end
 
-	-- 4. Decrement the count
+	-- 4. Decrement the count (queue size)
 	Queue.Count = Queue.Count :: number - 1
 
 	return Request
@@ -502,62 +636,97 @@ end
 local function ProcessRequest(Request)
 	Spawn(function()
 		if Request.Key then
+			-- if the request has key (meaning its key read/write/readwrite) = acquire the key mode
 			WaitForKeyAndAcquireLock(Request.DataStore, Request.Key, Request.KeyAccessMode)
 		end
-		--re-check the budget to ensure reliability
+		-- Re-check the budget to ensure reliability
 		if DataStoreService:GetRequestBudgetForRequestType(Request.RequestType) < 1 then
-			--while we waited for the key, the budget was exhausted, put the request to dropped requests to then process it
+			-- While we waited for the key, the budget was exhausted, put the request to dropped requests to then process it
 			if Request.Key then ReleaseKeyLock(Request.DataStore, Request.Key, Request.KeyAccessMode) end
-
+			
 			Enqueue(Processor.DroppedRequests :: any, Request)
-
+			
 			return
 		end
+		-- all validations have passed = safely preform the operation
 		local success, result = Requests[Request.RequestName](Request)
+		
 		if Request.Key then ReleaseKeyLock(Request.DataStore, Request.Key, Request.KeyAccessMode) end
+		
+		-- fire the signal with results
 		RequestProcessed:Fire(Request.Id, success, result)
 	end)
 end
 
+-- First-layer safety
 local function IsRequestValid(request)
 	local RequestType = request.RequestType
-
+	
+	-- 1. Check budget availability
 	if DataStoreService:GetRequestBudgetForRequestType(RequestType) <= 0 then return false end
-
+	
+	-- 2. Check key validity if exists
 	local Key = request.Key
 	local mode = request.KeyAccessMode
 	if Key and not IsKeyValid(request.DataStore, Key, mode) then return false end
 	
+	-- All validations passed, return success
 	return true
 end
 
+-- Iterates through a given queue and processes it
 local function IterateThrough(Queue, QueueName: string)
+	-- if the queue is empty or its already being processed = return
 	if Queue.Count < 1 or Processor[QueueName.."Processing"] then return end
+	
+	-- set it as processing to prevent other calls from processing the queue
 	Processor[QueueName.."Processing"] = true
-
+	
+	-- fetch initial count
 	local InitialCount = Queue.Count
 
 	for i = 1, InitialCount do
-
+		-- the queue is now empty
 		if not Queue.Head then break end
-
+		
+		-- fetch the request
 		local request = Queue.Head.Request :: Request 
-
+		
 		if IsRequestValid(request) then
+			-- if the request is valid = remove the node from the queue and start processing the request
 			Dequeue(Queue) 
 			ProcessRequest(request)
 		else
-			--add the request at the bottom of the queue
+			-- add the request at the bottom of the queue (requeue)
 			Dequeue(Queue)
 			Enqueue(Queue :: any, request)
 		end
 	end
-
+	
+	-- the loop has finished, we're not processing the queue anymore
 	Processor[QueueName.."Processing"] = false
 end
 
 local function AreQueuesEmpty()
 	return Processor.Queue.Count == 0 and Processor.PriorityQueue.Count == 0
+end
+
+local function EnqueueRequestAndWaitForResult(Request: Request, Prioritize: boolean?, Queue: any?)
+	local queue = Queue or (Prioritize and Processor.PriorityQueue or Processor.Queue)
+
+	Enqueue(queue :: any, Request)
+	Processor.FinishedAll = false
+	local conn = nil
+	local co = coroutine.running()
+	conn = RequestProcessed:Connect(function(id, success, result)
+		if id == Request.Id then
+			coroutine.resume(co, success, result)
+			conn:Disconnect()
+			conn = nil :: any
+		end
+	end)
+
+	return coroutine.yield()
 end
 
 local function PreformDatastoreRequest(RequestName: string, DataStore: DataStore?, Key: string?, KeyAccessMode: string?, RequestType: Enum.DataStoreRequestType, ExtraData: {[string]: any}?, Prioritize: boolean?)
@@ -571,28 +740,25 @@ local function PreformDatastoreRequest(RequestName: string, DataStore: DataStore
 		RequestName = RequestName
 	}
 	
-	--First check if there is not any requests in queues
-	if AreQueuesEmpty() and IsKeyValid(DataStore, Key, KeyAccessMode) then
-		if Key then WaitForKeyAndAcquireLock(DataStore, Key, KeyAccessMode) end
-		local success, result = Requests[Request.RequestName](Request)
-		if Key then ReleaseKeyLock(DataStore, Key, KeyAccessMode) end
-		return success, result
-	else
-		local queue = Prioritize and Processor.PriorityQueue or Processor.Queue
-
-		Enqueue(queue :: any, Request)
-		Processor.FinishedAll = false
-		local conn = nil
-		local co = coroutine.running()
-		conn = RequestProcessed:Connect(function(id, success, result)
-			if id == Request.Id then
-				coroutine.resume(co, success, result)
-				conn:Disconnect()
-				conn = nil :: any
-			end
-		end)
+	-- First check if there is not any requests in queues
+	if AreQueuesEmpty() and IsKeyValid(DataStore :: DataStore, Key :: string, KeyAccessMode) then
+		-- if there is no requests in the queues and the request is valid = acquire the key if exists
+		if Key then WaitForKeyAndAcquireLock(DataStore :: DataStore, Key, KeyAccessMode) end
 		
-		return coroutine.yield()
+		-- since acquiring key can yield, we re-check availability
+		if IsKeyValid(DataStore :: DataStore, Key :: string, KeyAccessMode) then
+			local success, result = Requests[Request.RequestName](Request)
+
+			if Key then ReleaseKeyLock(DataStore :: DataStore, Key, KeyAccessMode) end
+
+			return success, result
+		else
+			-- the budget got exhausted or the key lock is lost = drop the request
+			return EnqueueRequestAndWaitForResult(Request :: any, Prioritize, Processor.DroppedRequests)
+		end
+	else
+		-- there are requests in the queue or the request is not valid to process = enqueue
+		return EnqueueRequestAndWaitForResult(Request :: any, Prioritize, nil)
 	end
 end
 
@@ -600,11 +766,13 @@ end
 
 local elapsed = 0
 RunService.Heartbeat:Connect(function(delta)
-	elapsed += delta --we do that anyway in order to instantly start processing requests if they get in queue
 	if Processor.FinishedAll then return end
+	
+	elapsed += delta
 	
 	if elapsed >= Processor.IterationCycle then
 		elapsed = 0
+		-- iterate through every queue
 		IterateThrough(Processor.DroppedRequests :: any, "DroppedRequests")
 		IterateThrough(Processor.PriorityQueue :: any, "PriorityQueue")
 		IterateThrough(Processor.Queue :: any, "Queue")
@@ -621,18 +789,23 @@ local EliteDataStorePages = {}
 EliteDataStorePages.__index = EliteDataStorePages
 
 local function CreateDataStore(Name, Scope, Opts, IsOrderedDS)
+	-- create an EliteDataStore object
 	local self = setmetatable({}, EliteDataStore)
 	self.Name = Name
 	self.DS = IsOrderedDS and DataStoreService:GetOrderedDataStore(Name, Scope) or DataStoreService:GetDataStore(Name, Scope, Opts)
 	self.Ordered = IsOrderedDS
+	
+	-- initialize data
 	Processor.KeyRegistry[self.DS] = {}
 	Processor.KeyWaiters[self.DS] = {}
+	
 	return self
 end
 
 local function CreateEliteDataStorePages(PagesObj)
 	local self = setmetatable({}, EliteDataStorePages)
 	self.Pages = PagesObj
+	
 	return self
 end
 
@@ -724,6 +897,7 @@ function EliteDataStoreService:CheckDataStoreAccess(Log)
 	return new_state
 end
 
+-- NOTE: the custom DataStoreService must have the same API as roblox DataStoreService, otherwise the module will not work
 function EliteDataStoreService:ReplaceDataStoreServiceWithCustomHandler(Handler)
 	DataStoreService = Handler
 end
@@ -737,7 +911,7 @@ function EliteDataStore:CanWrite(Key)
 end
 
 function EliteDataStore:GetAsync(Key, Options, Prioritize)
-	--Assert
+	-- Assert
 	if type(Key) ~= "string" then
 		error(`Invalid argument #1, string expected, got {typeof(Key)}`)
 	elseif Options ~= nil and (typeof(Options) ~= "Instance" or not (Options :: any):IsA("DataStoreGetOptions")) then
@@ -746,11 +920,13 @@ function EliteDataStore:GetAsync(Key, Options, Prioritize)
 	
 	local success, result = PreformDatastoreRequest("GetAsync", self.DS, Key, "CanRead", Enum.DataStoreRequestType.GetAsync, {Options = Options}, Prioritize)
 	
-	return result, success --we return success as a second return value because it is more convenient for some people to just do local data = DS:GetAsyc(...), and users that need more reliability can do local data, success = DS:GetAsync(...)
+	return result, success
+	-- we return success as a second return value,
+	-- because it is more convenient for some people to just do local data = DS:GetAsync(...),
+	-- and users that need more reliability can do local data, success = DS:GetAsync(...)
 end
 
 function EliteDataStore:GetSortedAsync(Ascending, PageSize, MinValue, MaxValue, Prioritize)
-	-- Assertions
 	if not self.Ordered then
 		error("Cannot use GetSortedAsync on a non-Ordered DataStore")
 	elseif type(Ascending) ~= "boolean" then
@@ -996,9 +1172,5 @@ export type Request = {
 	Prioritize: boolean?,
 }
 
-export type QueueNode = {
-	Request: Request,
-	Next: QueueNode?,
-}
 
 return (EliteDataStoreService :: any) :: EliteDataStoreService
