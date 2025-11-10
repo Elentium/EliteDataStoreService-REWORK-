@@ -489,7 +489,6 @@ local function IsKeyValid(Datastore, Key, mode)
 		Processor.KeyRegistry[Datastore][Key] = info
 		return true
 	end
-	
 	-- return result
 	if mode == "ReadWrite" then
 		return info.CanRead and info.CanWrite
@@ -650,9 +649,7 @@ local function ProcessRequest(Request)
 		end
 		-- all validations have passed = safely preform the operation
 		local success, result = Requests[Request.RequestName](Request)
-		
 		if Request.Key then ReleaseKeyLock(Request.DataStore, Request.Key, Request.KeyAccessMode) end
-		
 		-- fire the signal with results
 		RequestProcessed:Fire(Request.Id, success, result)
 	end)
@@ -664,12 +661,10 @@ local function IsRequestValid(request)
 	
 	-- 1. Check budget availability
 	if DataStoreService:GetRequestBudgetForRequestType(RequestType) <= 0 then return false end
-	
 	-- 2. Check key validity if exists
 	local Key = request.Key
 	local mode = request.KeyAccessMode
 	if Key and not IsKeyValid(request.DataStore, Key, mode) then return false end
-	
 	-- All validations passed, return success
 	return true
 end
@@ -688,7 +683,6 @@ local function IterateThrough(Queue, QueueName: string)
 	for i = 1, InitialCount do
 		-- the queue is now empty
 		if not Queue.Head then break end
-		
 		-- fetch the request
 		local request = Queue.Head.Request :: Request 
 		
@@ -744,18 +738,9 @@ local function PreformDatastoreRequest(RequestName: string, DataStore: DataStore
 	if AreQueuesEmpty() and IsKeyValid(DataStore :: DataStore, Key :: string, KeyAccessMode) then
 		-- if there is no requests in the queues and the request is valid = acquire the key if exists
 		if Key then WaitForKeyAndAcquireLock(DataStore :: DataStore, Key, KeyAccessMode) end
-		
-		-- since acquiring key can yield, we re-check availability
-		if IsKeyValid(DataStore :: DataStore, Key :: string, KeyAccessMode) then
-			local success, result = Requests[Request.RequestName](Request)
-
-			if Key then ReleaseKeyLock(DataStore :: DataStore, Key, KeyAccessMode) end
-
-			return success, result
-		else
-			-- the budget got exhausted or the key lock is lost = drop the request
-			return EnqueueRequestAndWaitForResult(Request :: any, Prioritize, Processor.DroppedRequests)
-		end
+		local success, result = Requests[Request.RequestName](Request)
+		if Key then ReleaseKeyLock(DataStore :: DataStore, Key, KeyAccessMode) end
+		return success, result
 	else
 		-- there are requests in the queue or the request is not valid to process = enqueue
 		return EnqueueRequestAndWaitForResult(Request :: any, Prioritize, nil)
@@ -765,9 +750,8 @@ end
 --== Main loop ==--
 
 local elapsed = 0
-RunService.Heartbeat:Connect(function(delta)
+local RSConn = RunService.Heartbeat:Connect(function(delta)
 	if Processor.FinishedAll then return end
-	
 	elapsed += delta
 	
 	if elapsed >= Processor.IterationCycle then
@@ -1111,6 +1095,9 @@ game:BindToClose(function()
 	repeat
 		task.wait()
 	until Processor.FinishedAll
+	
+	RSConn:Disconnect()
+	RSConn = nil
 end)
 
 --== Type Annotations ==--
