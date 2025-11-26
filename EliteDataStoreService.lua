@@ -1,5 +1,5 @@
 --[[
-	EliteDataStoreService V1.4.0
+	EliteDataStoreService V1.4.2
 	
 	[by iamnotultra3 a.k.a Elite]
 	
@@ -14,6 +14,7 @@
 	- Lightweight and efficient, minimal overhead
 	- Exposes the same methods as DataStoreService (and more), but with
 	- built-in safety and better reliability
+	- minimal overhead
 
 	--------------------------------------------------------
 	Why not just use DataStoreService?
@@ -35,6 +36,7 @@
 	• A basic understanding of DataStoreService is recommended:
 	"https://create.roblox.com/docs/reference/engine/classes/DataStoreService"
 	• The module keeps being enhanced in performance and features, there is also an upcoming CloudService module that is an all-in-one datastore solution, which uses EliteDataStoreService as middleware between the module and DataStores
+	• After some benchmark tests, this module showed almost no difference in performance compared to DataStoreService
 	--------------------------------------------------------
 	Best Practices
 	--------------------------------------------------------
@@ -82,200 +84,6 @@ end
 local function Spawn(fn: (...any) -> (), ...: any)
 	HelperThreadSpawner(task.spawn, fn, ...)
 end
-
-local function GetInstanceFromPath(path: string): Instance?
-	local current = game
-	for segment in string.gmatch(path, "[^%.]+") do
-		current = current:FindFirstChild(segment)
-		if not current then return nil end
-	end
-	return current
-end
-
-local SignalU do
-	local Connection = {}
-	Connection.__index = Connection
-
-	function Connection:Disconnect()
-		if not self.Connected then return end
-		self.Connected = false
-
-		local parent = self.Parent
-		if not parent then return end
-
-		-- since the connection is disconnected = connect previous connection with the next one
-		-- if the connection is at the head = replace the head with the next connection
-		if self.Prev then
-			self.Prev.Next = self.Next
-		else
-			parent.Head = self.Next
-		end
-
-		if self.Next then
-			self.Next.Prev = self.Prev
-		end
-
-		-- cleanup
-		self.Next = nil :: any
-		self.Prev = nil :: any
-		self.Parent = nil :: any
-		self.Listener = nil :: any
-		-- the :: any is for silencing the strict type checker
-	end
-
-	local Signal = {}
-	Signal.__index = Signal
-
-
-	local function CreateSignal<T...>(_, strictcheck: boolean?, ...: T...)
-		-- create a new signal object
-		local self = setmetatable({}, Signal)
-		-- we do `strictcheck == true` to ensure the value is a boolean
-		self.StrictCheck = strictcheck == true
-		self.Head = nil :: Connection?
-		return (self :: any) :: Signal<T...>-- silence the strict type checker with :: any
-	end
-
-	function Signal:Connect(fn)
-		-- create a connetion object
-		local connection = setmetatable({}, Connection)
-		connection.Listener = fn
-		connection.Connected = true
-		connection.Parent = self
-
-		-- since we add connections to the end = the newest added connection should be at the tail
-		if self.Tail then
-			-- if a tail already existed = set the current tail's `Next` reference to the new connection
-			-- set the new connection's `Prev` reference to the current Tail
-			-- set the new tail as the new connection
-			self.Tail.Next = connection
-			connection.Prev = self.Tail
-			self.Tail = connection
-		else
-			-- tail did not exist = instant set
-			-- we also set the head as the new connection because if there is no tail = there is no head
-			self.Head = connection
-			self.Tail = connection
-		end
-
-		-- return the connection
-		return connection
-	end
-
-
-	function Signal:Once(fn: (...any) -> ())
-		-- store the connection variable and disconnect it as soon as the signal is fired
-		local conn
-
-		conn = self:Connect(function(...)
-			fn(...)
-			conn:Disconnect()
-		end)
-
-		return conn
-	end
-
-	function Signal:ConnectParallel(fn: (...any) -> ())
-
-		if self.StrictCheck then
-			-- if the strict check is on = check if the script that uses the module is running under an actor
-			-- 2 is the level of how deep to check, the level 1 is the module itself so we do not want this, level 2 is the script that required the module
-			-- "s" of debug.info returns a script path like "ServerScriptService.Script"
-			local scriptPath = debug.info(coroutine.running(), 2, "s")
-			if scriptPath then
-				local scriptInstance = GetInstanceFromPath(scriptPath)
-				-- check if the script is running under an Actor
-				if scriptInstance and scriptInstance:GetActor() == nil then
-					warn(`Cannot use ConnectParallel in non-parallel environment ({scriptPath})`)
-					return (nil :: any) :: Connection
-				end
-			end
-		end
-
-		return self:Connect(function(...)
-			task.desynchronize()
-			fn(...)
-		end)
-	end
-
-	function Signal:Fire(...: any)
-		-- simple linked list iteration
-		local node = self.Head
-		while node do
-			if node.Connected then
-				node.Listener(...)
-			end
-			node = node.Next
-		end
-	end
-
-	function Signal:FireAsync(...: any)
-		-- same iteration, but this time we run each listener in a separate thread
-		local node = self.Head
-		while node do
-			if node.Connected then
-				Spawn(node.Listener, ...)
-			end
-			node = node.Next
-		end
-	end
-
-	function Signal:Wait(): (...any)
-		-- yield the current thread until a signal has been fired
-		local co = coroutine.running()
-		local conn
-		conn = self:Connect(function(...)
-			conn:Disconnect()
-			-- resume the coroutine with the received data
-			coroutine.resume(co, ...)
-		end)
-		return coroutine.yield()
-	end
-
-	function Signal:DisconnectAll()
-		-- we simply get rid of the head and tail references, and the connections automatically get garbage collected
-		self.Head = nil
-		self.Tail = nil
-	end
-
-	function Signal:Destroy()
-		-- fully clear the signal
-		self.Head = nil
-		self.Tail = nil
-		self.StrictCheck = nil :: any
-		-- now you cannot call any of the methods since the signal is not affected by the metatable anymore
-		setmetatable(self, nil)
-	end
-
-	-- Type annotations
-
-	export type Connection = {
-		Disconnect: (self: Connection) -> (),
-		Connected: boolean,
-		Parent: any, -- here we do `any` instead of `Signal` because the strict type checker warns about Recursive type thing
-		Next: Connection?,
-		Listener: (...any) -> ()
-	}
-
-	export type Signal<T...=()> = {
-		Connect: (self: Signal<T...>, fn: (T...) -> ()) -> Connection,
-		Once: (self: Signal<T...>, fn: (T...) -> ()) -> Connection,
-		ConnectParallel: (self: Signal<T...>, fn: (T...) -> ()) -> Connection,
-		Fire: (self: Signal<T...>, T...) -> (),
-		FireAsync: (self: Signal<T...>, T...) -> (),
-		Wait: (self: Signal<T...>) -> (T...),
-		DisconnectAll: (self: Signal<T...>) -> (),
-		Destroy: (self: Signal<T...>) -> ()
-	}
-
-	SignalU = setmetatable({
-		IsSignal = function(object: any)
-			return getmetatable(object) == Signal
-		end,
-	}, {
-		__call = CreateSignal -- __call is being triggered whenever we try to call the table as a function
-	})
-end
 ---------------------------------------------------------------------------------------------
 
 --== Variables ==--
@@ -284,10 +92,6 @@ local RunService = game:GetService("RunService")
 
 local EliteDataStoreService = {}
 EliteDataStoreService.TotalRequests = 0
-
--- we assign those 1, true, nil for type annotations
--- the first false is `StrictModeEnabled`, we do not need strict mode as it only checks the ConnectParallel while we do not use it here
-local RequestProcessed = SignalU(false, 1 :: number, true :: boolean, nil :: any)
 
 -- the main processor that handles datastore requests with budget + key rate limiting
 local Processor = {
@@ -312,7 +116,7 @@ local Processor = {
 	PriorityQueue = { Head = nil, Tail = nil, Count = 0 },
 	-- the third queue, it is being processed the first, but it is rarely having any requests
 	-- the only time there are some requests in the queue,
-	-- is when after acquiring a key, the budget gets exhausted
+	-- is when a key lock for Write/Read/WriteRead is lost
 	-- since this module design values safety, we do not call the request if there is any safety concerns
 	DroppedRequests = { Head = nil, Tail = nil, Count = 0 },
 	
@@ -331,8 +135,9 @@ local Processor = {
 	-- as i explained above, if certain key cannot Read or Write and there is an incoming request:
 	-- it inserts the request to certain mode coroutine waiters
 	-- whenever another request is finished = it resumes the first request in the queue and the chain continues
-	-- however there might be an edge case where after we waited for other requests to preform a per-key operation = the budget got exhausted,
-	-- so we enqueue the request to the `DroppedRequests` queue so the request gets safely processed in the next IterationCycle
+	-- however there might be an edge case where 2 requests of the same key and mode have been called at the same time,
+	-- in this case it would be inefficient as i would have to implement confirmation chain
+	-- so we just enqueue the request to the `DroppedRequests` queue so the request gets safely processed in the next IterationCycle
 	KeyWaiters = {} :: { [DataStore | OrderedDataStore]: {[string]: { CanRead: { thread? }, CanWrite: { thread? }, ReadWrite: { thread? } }} },
 	
 	-- Determines whether the main queue is being processed or not
@@ -489,6 +294,7 @@ local function IsKeyValid(Datastore, Key, mode)
 		Processor.KeyRegistry[Datastore][Key] = info
 		return true
 	end
+	
 	-- return result
 	if mode == "ReadWrite" then
 		return info.CanRead and info.CanWrite
@@ -514,8 +320,8 @@ local function WaitForKeyAndAcquireLock(Datastore, Key, mode)
 		table.insert(Processor.KeyWaiters[Datastore][Key][mode], currentCoroutine)
 		coroutine.yield()
 	end
-	
-	-- the key is valid = acquire the lock
+
+
 	info.RefCount += 1
 	if mode == "ReadWrite" then
 		info.CanRead, info.CanWrite = false, false
@@ -550,24 +356,20 @@ local function ReleaseKeyLock(Datastore, Key, mode)
 	local info = Processor.KeyRegistry[Datastore][Key]
 	-- if the info somehow does not exist = return, since there is nothing to release
 	if not info then return end
-	
-	-- remove the reference count and if its 0 = clean up registry
+
 	info.RefCount -= 1
 	if info.RefCount <= 0 then
 		Processor.KeyRegistry[Datastore][Key] = nil
 	else
-		-- otherwise just set CanRead & CanWrite to true
 		if mode == "ReadWrite" then
 			info.CanRead, info.CanWrite = true, true
 		else
 			info[mode] = true
 		end
 	end
-	
-	-- fetch waiters
+
 	local waiters = (Processor.KeyWaiters[Datastore][Key] or {})[mode] :: { thread }?
 	if waiters and #waiters > 0 then
-		-- resume the next in queue waiter
 		local waitingCo = table.remove(waiters, 1)
 
 		CleanupKeyWaiters(Datastore, Key)
@@ -607,7 +409,7 @@ local function Dequeue(Queue): Request?
 	-- 1. Get the Request from the Head
 	local Request = Queue.Head.Request
 
-	-- 2. Move the Head pointer to the next node
+	-- 2. Move the Head pointer to the next node (O(1))
 	local NewHead = Queue.Head.Next
 
 	-- 3. Clear the reference to aid garbage collection
@@ -621,7 +423,7 @@ local function Dequeue(Queue): Request?
 		Queue.Tail = nil
 	end
 
-	-- 4. Decrement the count (queue size)
+	-- 4. Decrement the count
 	Queue.Count = Queue.Count :: number - 1
 
 	return Request
@@ -635,92 +437,64 @@ end
 local function ProcessRequest(Request)
 	Spawn(function()
 		if Request.Key then
-			-- if the request has key (meaning its key read/write/readwrite) = acquire the key mode
 			WaitForKeyAndAcquireLock(Request.DataStore, Request.Key, Request.KeyAccessMode)
 		end
-		-- Re-check the budget to ensure reliability
+		--re-check the budget to ensure reliability
 		if DataStoreService:GetRequestBudgetForRequestType(Request.RequestType) < 1 then
-			-- While we waited for the key, the budget was exhausted, put the request to dropped requests to then process it
+			--while we waited for the key, the budget was exhausted, put the request to dropped requests to then process it
 			if Request.Key then ReleaseKeyLock(Request.DataStore, Request.Key, Request.KeyAccessMode) end
-			
+
 			Enqueue(Processor.DroppedRequests :: any, Request)
-			
+
 			return
 		end
-		-- all validations have passed = safely preform the operation
 		local success, result = Requests[Request.RequestName](Request)
 		if Request.Key then ReleaseKeyLock(Request.DataStore, Request.Key, Request.KeyAccessMode) end
-		-- fire the signal with results
-		RequestProcessed:Fire(Request.Id, success, result)
+		if Request.Cor and coroutine.status(Request.Cor) == "suspended" then
+			task.spawn(Request.Cor, success, result)
+		end
 	end)
 end
 
--- First-layer safety
 local function IsRequestValid(request)
 	local RequestType = request.RequestType
-	
-	-- 1. Check budget availability
+
 	if DataStoreService:GetRequestBudgetForRequestType(RequestType) <= 0 then return false end
-	-- 2. Check key validity if exists
+
 	local Key = request.Key
 	local mode = request.KeyAccessMode
 	if Key and not IsKeyValid(request.DataStore, Key, mode) then return false end
-	-- All validations passed, return success
+	
 	return true
 end
 
--- Iterates through a given queue and processes it
 local function IterateThrough(Queue, QueueName: string)
-	-- if the queue is empty or its already being processed = return
 	if Queue.Count < 1 or Processor[QueueName.."Processing"] then return end
-	
-	-- set it as processing to prevent other calls from processing the queue
 	Processor[QueueName.."Processing"] = true
-	
-	-- fetch initial count
+
 	local InitialCount = Queue.Count
 
 	for i = 1, InitialCount do
-		-- the queue is now empty
+
 		if not Queue.Head then break end
-		-- fetch the request
+
 		local request = Queue.Head.Request :: Request 
-		
+
 		if IsRequestValid(request) then
-			-- if the request is valid = remove the node from the queue and start processing the request
 			Dequeue(Queue) 
 			ProcessRequest(request)
 		else
-			-- add the request at the bottom of the queue (requeue)
+			--add the request at the bottom of the queue
 			Dequeue(Queue)
 			Enqueue(Queue :: any, request)
 		end
 	end
-	
-	-- the loop has finished, we're not processing the queue anymore
+
 	Processor[QueueName.."Processing"] = false
 end
 
 local function AreQueuesEmpty()
 	return Processor.Queue.Count == 0 and Processor.PriorityQueue.Count == 0
-end
-
-local function EnqueueRequestAndWaitForResult(Request: Request, Prioritize: boolean?, Queue: any?)
-	local queue = Queue or (Prioritize and Processor.PriorityQueue or Processor.Queue)
-
-	Enqueue(queue :: any, Request)
-	Processor.FinishedAll = false
-	local conn = nil
-	local co = coroutine.running()
-	conn = RequestProcessed:Connect(function(id, success, result)
-		if id == Request.Id then
-			coroutine.resume(co, success, result)
-			conn:Disconnect()
-			conn = nil :: any
-		end
-	end)
-
-	return coroutine.yield()
 end
 
 local function PreformDatastoreRequest(RequestName: string, DataStore: DataStore?, Key: string?, KeyAccessMode: string?, RequestType: Enum.DataStoreRequestType, ExtraData: {[string]: any}?, Prioritize: boolean?)
@@ -731,32 +505,45 @@ local function PreformDatastoreRequest(RequestName: string, DataStore: DataStore
 		DataStore = DataStore,
 		ExtraData = ExtraData,
 		RequestType = RequestType,
-		RequestName = RequestName
+		RequestName = RequestName,
+		Cor = coroutine.running()
 	}
 	
-	-- First check if there is not any requests in queues
+	local function addToQueue()
+		local queue = Prioritize and Processor.PriorityQueue or Processor.Queue
+
+		Enqueue(queue :: any, Request)
+		Processor.FinishedAll = false
+
+		return coroutine.yield()
+	end
+	
+	--First check if there is not any requests in queues
 	if AreQueuesEmpty() and IsKeyValid(DataStore :: DataStore, Key :: string, KeyAccessMode) then
-		-- if there is no requests in the queues and the request is valid = acquire the key if exists
 		if Key then WaitForKeyAndAcquireLock(DataStore :: DataStore, Key, KeyAccessMode) end
+		-- check if the budget wasnt exhausted
+		if DataStoreService:GetRequestBudgetForRequestType(RequestType) < 1 then
+			-- if it is = just enqueue the request
+			return addToQueue()
+		end
+		-- otherwise process the request instantly
 		local success, result = Requests[Request.RequestName](Request)
 		if Key then ReleaseKeyLock(DataStore :: DataStore, Key, KeyAccessMode) end
 		return success, result
 	else
-		-- there are requests in the queue or the request is not valid to process = enqueue
-		return EnqueueRequestAndWaitForResult(Request :: any, Prioritize, nil)
+		return addToQueue()
 	end
 end
 
 --== Main loop ==--
 
 local elapsed = 0
-local RSConn = RunService.Heartbeat:Connect(function(delta)
+RunService.Heartbeat:Connect(function(delta)
+	elapsed += delta --we do that anyway in order to instantly start processing requests if they get in queue
 	if Processor.FinishedAll then return end
-	elapsed += delta
 	
 	if elapsed >= Processor.IterationCycle then
 		elapsed = 0
-		-- iterate through every queue
 		IterateThrough(Processor.DroppedRequests :: any, "DroppedRequests")
 		IterateThrough(Processor.PriorityQueue :: any, "PriorityQueue")
 		IterateThrough(Processor.Queue :: any, "Queue")
@@ -773,23 +560,18 @@ local EliteDataStorePages = {}
 EliteDataStorePages.__index = EliteDataStorePages
 
 local function CreateDataStore(Name, Scope, Opts, IsOrderedDS)
-	-- create an EliteDataStore object
 	local self = setmetatable({}, EliteDataStore)
 	self.Name = Name
 	self.DS = IsOrderedDS and DataStoreService:GetOrderedDataStore(Name, Scope) or DataStoreService:GetDataStore(Name, Scope, Opts)
 	self.Ordered = IsOrderedDS
-	
-	-- initialize data
 	Processor.KeyRegistry[self.DS] = {}
 	Processor.KeyWaiters[self.DS] = {}
-	
 	return self
 end
 
 local function CreateEliteDataStorePages(PagesObj)
 	local self = setmetatable({}, EliteDataStorePages)
 	self.Pages = PagesObj
-	
 	return self
 end
 
@@ -881,7 +663,6 @@ function EliteDataStoreService:CheckDataStoreAccess(Log)
 	return new_state
 end
 
--- NOTE: the custom DataStoreService must have the same API as roblox DataStoreService, otherwise the module will not work
 function EliteDataStoreService:ReplaceDataStoreServiceWithCustomHandler(Handler)
 	DataStoreService = Handler
 end
@@ -895,7 +676,7 @@ function EliteDataStore:CanWrite(Key)
 end
 
 function EliteDataStore:GetAsync(Key, Options, Prioritize)
-	-- Assert
+	--Assert
 	if type(Key) ~= "string" then
 		error(`Invalid argument #1, string expected, got {typeof(Key)}`)
 	elseif Options ~= nil and (typeof(Options) ~= "Instance" or not (Options :: any):IsA("DataStoreGetOptions")) then
@@ -904,13 +685,11 @@ function EliteDataStore:GetAsync(Key, Options, Prioritize)
 	
 	local success, result = PreformDatastoreRequest("GetAsync", self.DS, Key, "CanRead", Enum.DataStoreRequestType.GetAsync, {Options = Options}, Prioritize)
 	
-	return result, success
-	-- we return success as a second return value,
-	-- because it is more convenient for some people to just do local data = DS:GetAsync(...),
-	-- and users that need more reliability can do local data, success = DS:GetAsync(...)
+	return result, success -- we return success as a second return value because it is more convenient for some people to just do local data = DS:GetAsync(...), and users that need more reliability can do local data, success = DS:GetAsync(...)
 end
 
 function EliteDataStore:GetSortedAsync(Ascending, PageSize, MinValue, MaxValue, Prioritize)
+	-- Assertions
 	if not self.Ordered then
 		error("Cannot use GetSortedAsync on a non-Ordered DataStore")
 	elseif type(Ascending) ~= "boolean" then
@@ -962,8 +741,7 @@ end
 function EliteDataStore:UpdateAsync(Key, TransformFunction, Prioritize)
 	if type(Key) ~= "string" then
 		error(`Invalid argument #1, string expected, got {typeof(Key)}`)
-	end
-	if type(TransformFunction) ~= "function" then
+	elseif type(TransformFunction) ~= "function" then
 		error(`Invalid argument #2, function expected, got {typeof(TransformFunction)}`)
 	end
 
@@ -986,14 +764,11 @@ end
 function EliteDataStore:IncrementAsync(Key, Delta, UserIds, Options, Prioritize)
 	if type(Key) ~= "string" then
 		error(`Invalid argument #1, string expected, got {typeof(Key)}`)
-	end
-	if type(Delta) ~= "number" then
+	elseif type(Delta) ~= "number" then
 		error(`Invalid argument #2, number expected, got {typeof(Delta)}`)
-	end
-	if UserIds ~= nil and type(UserIds) ~= "table" then
+	elseif UserIds ~= nil and type(UserIds) ~= "table" then
 		error(`Invalid argument #3, table expected, got {typeof(UserIds)}`)
-	end
-	if Options ~= nil and (typeof(Options) ~= "Instance" or not Options:IsA("DataStoreIncrementOptions")) then
+	elseif Options ~= nil and (typeof(Options) ~= "Instance" or not Options:IsA("DataStoreIncrementOptions")) then
 		error(`Invalid argument #4, nil or DataStoreIncrementOptions expected, got {typeof(Options)}`)
 	end
 
@@ -1006,14 +781,11 @@ end
 function EliteDataStore:ListKeysAsync(Prefix, PageSize, Cursor, ExcludeDeleted, Prioritize)
 	if Prefix ~= nil and type(Prefix) ~= "string" then
 		error(`Invalid argument #1, string expected, got {typeof(Prefix)}`)
-	end
-	if PageSize ~= nil and type(PageSize) ~= "number" then
+	elseif PageSize ~= nil and type(PageSize) ~= "number" then
 		error(`Invalid argument #2, number expected, got {typeof(PageSize)}`)
-	end
-	if Cursor ~= nil and type(Cursor) ~= "string" then
+	elseif Cursor ~= nil and type(Cursor) ~= "string" then
 		error(`Invalid argument #3, string expected, got {typeof(Cursor)}`)
-	end
-	if ExcludeDeleted ~= nil and type(ExcludeDeleted) ~= "boolean" then
+	elseif ExcludeDeleted ~= nil and type(ExcludeDeleted) ~= "boolean" then
 		error(`Invalid argument #4, boolean expected, got {typeof(ExcludeDeleted)}`)
 	end
 
@@ -1028,17 +800,13 @@ end
 function EliteDataStore:ListVersionsAsync(Key, SortDirection, MinDate, MaxDate, PageSize, Prioritize)
 	if type(Key) ~= "string" then
 		error(`Invalid argument #1, string expected, got {typeof(Key)}`)
-	end
-	if SortDirection ~= nil and typeof(SortDirection) ~= "EnumItem" then
+	elseif SortDirection ~= nil and typeof(SortDirection) ~= "EnumItem" then
 		error(`Invalid argument #2, Enum.SortDirection expected, got {typeof(SortDirection)}`)
-	end
-	if MinDate ~= nil and type(MinDate) ~= "number" then
+	elseif MinDate ~= nil and type(MinDate) ~= "number" then
 		error(`Invalid argument #3, number expected, got {typeof(MinDate)}`)
-	end
-	if MaxDate ~= nil and type(MaxDate) ~= "number" then
+	elseif MaxDate ~= nil and type(MaxDate) ~= "number" then
 		error(`Invalid argument #4, number expected, got {typeof(MaxDate)}`)
-	end
-	if PageSize ~= nil and type(PageSize) ~= "number" then
+	elseif PageSize ~= nil and type(PageSize) ~= "number" then
 		error(`Invalid argument #5, number expected, got {typeof(PageSize)}`)
 	end
 
@@ -1053,8 +821,7 @@ end
 function EliteDataStore:GetVersionAsync(Key, Version, Prioritize)
 	if type(Key) ~= "string" then
 		error(`Invalid argument #1, string expected, got {typeof(Key)}`)
-	end
-	if type(Version) ~= "string" then
+	elseif type(Version) ~= "string" then
 		error(`Invalid argument #2, string expected, got {typeof(Version)}`)
 	end
 
@@ -1066,8 +833,7 @@ end
 function EliteDataStore:GetVersionAtTimeAsync(Key, Timestamp, Prioritize)
 	if type(Key) ~= "string" then
 		error(`Invalid argument #1, string expected, got {typeof(Key)}`)
-	end
-	if type(Timestamp) ~= "number" then
+	elseif type(Timestamp) ~= "number" then
 		error(`Invalid argument #2, number expected, got {typeof(Timestamp)}`)
 	end
 
@@ -1079,8 +845,7 @@ end
 function EliteDataStore:RemoveVersionAsync(Key, Version, Prioritize)
 	if type(Key) ~= "string" then
 		error(`Invalid argument #1, string expected, got {typeof(Key)}`)
-	end
-	if type(Version) ~= "string" then
+	elseif type(Version) ~= "string" then
 		error(`Invalid argument #2, string expected, got {typeof(Version)}`)
 	end
 
@@ -1091,13 +856,10 @@ end
 
 --== Shutdown Handling ==--
 game:BindToClose(function()
-	task.wait(2)--small delay for server scripts to handle shutdown
+	task.wait(2)-- small delay for server scripts to handle shutdown
 	repeat
 		task.wait()
 	until Processor.FinishedAll
-	
-	RSConn:Disconnect()
-	RSConn = nil
 end)
 
 --== Type Annotations ==--
@@ -1158,6 +920,5 @@ export type Request = {
 	ExtraData: {[string]: any}?,
 	Prioritize: boolean?,
 }
-
 
 return (EliteDataStoreService :: any) :: EliteDataStoreService
