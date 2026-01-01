@@ -97,11 +97,17 @@ in update V1.6.0 i will think about this and decide which method should i use
 
 **-- Benchmark tests(in studio) --**
 *Test 1 (100 SetAsync spams for the same key):*
+
     - EliteDataStoreService: *39.42210533330217 seconds | 100% success | 198 KB Peak memory usage*
+	
     - DataStoreService: *29.84927079168847 seconds | 31% success | 58 KB Peak memory usage*
+	
 *Test 2 (100 GetAsync spams for the same key):*
-    EliteDataStoreService: *2.8620037916698493 seconds | 100% success | 243 KB Peak memory usage*
-    DataStoreService: *2.8833942916826345 seconds | 100% success | 121 KB Peak memory usage*
+
+    - EliteDataStoreService: *2.8620037916698493 seconds | 100% success | 243 KB Peak memory usage*
+	
+    - DataStoreService: *2.8833942916826345 seconds | 100% success | 121 KB Peak memory usage*
+	
     
 more benchmark tests coming soon (in-roblox benchmark included)
 
