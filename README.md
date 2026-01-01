@@ -1,6 +1,6 @@
 # EliteDataStoreService V1.5.0 [by iamnotultra3 a.k.a Elite]
 	
-**[MIT LICENSE]**
+**[APACHE 2.0 LICENSE]**
 
 *A powerful and efficient DataStoreService wrapper that handles most pain points for you, leaving you with big, yet safe control of data stores*
 
@@ -42,7 +42,7 @@
 • "https://github.com/Elentium/EliteDataStoreService-REWORK-"
 
 # Wally
-• "elentium/elitedatastoreservice@1.5.0"
+• "elentium/elitedatastoreservice@1.5.1"
 
 # Update Logs (starting from V1.5.0)
 - New method: GuardCall
