@@ -4,9 +4,8 @@
 
 *A powerful and efficient DataStoreService wrapper that handles most pain points for you, leaving you with big, yet safe control of data stores*
 
-*--------------------------------------------------------
+
 # What this module does
---------------------------------------------------------*
 - *Handles DataStore request limits for you (no more dropped calls)*
 - *Strong argument checks for safer use*
 - *Clean IntelliSense support*
@@ -15,9 +14,8 @@
 - *minimal overhead*
 - *rich logging*
 
-*--------------------------------------------------------
+
 # Why not just use DataStoreService?*
---------------------------------------------------------*
 **DataStoreService has a few big issues:**
 - Easy to hit request limits and lose calls
 - Errors can happen even if your code is correct
@@ -25,9 +23,8 @@
 
 **This module solves those problems by queueing requests, validating inputs, and surfacing errors without sandboxing any functionality.**
 
-*--------------------------------------------------------
+
 # Notes
---------------------------------------------------------*
 - Roblox still enforces the 4MB per key size limit
 - The module is battle tested, you do not have to worry about bugs! (if there is any issue(typo, small inconsistency) pls tell me)
 - A basic understanding of DataStoreService is recommended:
@@ -35,25 +32,19 @@
 - The module keeps being enhanced in performance and features, there is also an upcoming CloudService module that is an all-in-one datastore solution, which uses EliteDataStoreService as middleware between the module and DataStores
 - After some benchmark tests, this module showed almost no difference in performance compared to DataStoreService
 - This module is never meant to be a full wrapper like ProfileStore, its just a layer of protection against most annoying downsides of DataStoreService, almost all control is given to you
-*--------------------------------------------------------
+
 # Best Practices
---------------------------------------------------------*
 - Prioritize Player Saves on Shutdown: During the game:BindToClose() event, set a flag in your saving logic to ensure all remaining player data saves use the prioritize = true argument. This allows player data saves to jump ahead of any lower-priority background tasks in the queue.
 - Check the success Flag: Always capture and check the first return value (success). If it's false, it means the underlying Roblox API call failed (e.g., internal service error, 500 error, etc.). You should log this and potentially revert any game-state changes associated with the failed operation.
-*--------------------------------------------------------
+
+
 # Github
---------------------------------------------------------*
 • "https://github.com/Elentium/EliteDataStoreService-REWORK-"
-*--------------------------------------------------------
+
 # Wally
---------------------------------------------------------*
 • "elentium/elitedatastoreservice@1.5.0"
-*--------------------------------------------------------
+
 # Update Logs (starting from V1.5.0)
---------------------------------------------------------*
-*--------------------------------------------------------
-# Update Logs (starting from V1.5.0)
---------------------------------------------------------*
 - New method: GuardCall
 - Improved IntelliSense
 - Added logging & configurations
@@ -116,9 +107,8 @@ more benchmark tests coming soon (in-roblox benchmark included)
 
 **V1.6.0**
 - Coming soon...
-*--------------------------------------------------------
+
 # Code examples
---------------------------------------------------------*
 
 **1. Average code**
 ```luau
@@ -276,9 +266,7 @@ while task.wait(300) do
 end
 ```
 
-*--------------------------------------------------------
 # API
---------------------------------------------------------*
 - *EliteDataStoreService:GetDataStore(DataStoreName: string, Scope: string?, Options: DataStoreOptions?) -> EliteDataStore* {
     Status: "Non-Yielding",
     Description: "Creates an EliteDataStore object based on the given arguments",
