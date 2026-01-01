@@ -42,7 +42,7 @@
 • "https://github.com/Elentium/EliteDataStoreService-REWORK-"
 
 # Wally
-• "elentium/elitedatastoreservice@1.5.1"
+• "elentium/elitedatastoreservice@1.5.2"
 
 # Update Logs (starting from V1.5.0)
 - New method: GuardCall
