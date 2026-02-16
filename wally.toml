@@ -1,7 +1,15 @@
 [package]
 name = "elentium/elitedatastoreservice"
+<<<<<<< HEAD
 version = "1.5.2"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "server"
 authors = ["IAMNOTULTRA3"]
 exclude = ["selene.toml", "rokit.toml", ".gitignore"]
+=======
+version = "1.6.0"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "server"
+authors = ["IAMNOTULTRA3"]
+exclude = ["roblox-direct"]
+>>>>>>> d41f42f (VERSION 1.6.0)

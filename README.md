@@ -1,4 +1,4 @@
-# EliteDataStoreService V1.5.0 [by iamnotultra3 a.k.a Elite]
+# EliteDataStoreService V1.6.0 [by iamnotultra3 a.k.a Elite]
 	
 **[APACHE 2.0 LICENSE]**
 
@@ -14,8 +14,9 @@
 - *minimal overhead*
 - *rich logging*
 
-
+*--------------------------------------------------------
 # Why not just use DataStoreService?*
+--------------------------------------------------------*
 **DataStoreService has a few big issues:**
 - Easy to hit request limits and lose calls
 - Errors can happen even if your code is correct
@@ -42,9 +43,14 @@
 • "https://github.com/Elentium/EliteDataStoreService-REWORK-"
 
 # Wally
-• "elentium/elitedatastoreservice@1.5.2"
-
+--------------------------------------------------------*
+• "elentium/elitedatastoreservice@1.5.0"
+*--------------------------------------------------------
 # Update Logs (starting from V1.5.0)
+--------------------------------------------------------*
+*--------------------------------------------------------
+# Update Logs (starting from V1.5.0)
+--------------------------------------------------------*
 - New method: GuardCall
 - Improved IntelliSense
 - Added logging & configurations
@@ -58,32 +64,8 @@
 - Now all data store request methods(like GetAsync) firstly return success, and only then result
 - Update 1.6.0 is coming with even better performance and changes
 
-**-- New Key Locking System --**
-The new key locking system is very different from the previous one,
-main differences:
-- *linear vs smart processing*: the old one used linear method (1 read at a time, 1 write at a time)
-which could cause small desynchronizations to reading and writing,
-and recently DataStoreService started allowing concurrent reads, 
-so the old system became really outdated
-- the new system on the other hand allows concurrent reads,
-only if no write is happening and not even a single write request is pending
-and the writes stay linear (however 1 more change is that no write can happen while read is happening)
-this new approach solves a lot of issue, benefits:
-- if a read is incoming while other writes are processing or pending,
-the scripts are likely to read the new saved data from these writes, 
-so this read will keep waiting until all writes are finished
-- if a write is incoming, while read is happening, 
-the scripts are likely to read the previous data since the write arrived after those reads
-so it will yield until all reads are completed
-it prevents more and more reads from flooding the queue by simply incrementing pending writes, which stops all further reads from haappening
-there is one small weakness of the new system:
-- if more and more writes spam requests, the reads will never get to happen
-this is unlikely to happen since in normal environments requests spam almost never happen
-and write budget will be exhausted anyway if spams occur for such a long period
-it is fixable by simply adding PendingReads flag however write is more prioritized than reads
-and might not fit normal environments as good,
-in update V1.6.0 i will think about this and decide which method should i use
-**Thanks for reading!**
+**-- New Key Locking System (V1.5.0) --**
+The key locking system allows concurrent reads when no write is happening or pending, while writes stay linear. This ensures reads waiting during writes get fresh data, and writes waiting during reads preserve data consistency.
 
 **Useful resources to learn from:**
 - *linked lists: "https://www.youtube.com/watch?v=DTEraIOfoS0"*,
@@ -97,23 +79,17 @@ in update V1.6.0 i will think about this and decide which method should i use
 
 **-- Benchmark tests(in studio) --**
 *Test 1 (100 SetAsync spams for the same key):*
-
     - EliteDataStoreService: *39.42210533330217 seconds | 100% success | 198 KB Peak memory usage*
-	
     - DataStoreService: *29.84927079168847 seconds | 31% success | 58 KB Peak memory usage*
-	
 *Test 2 (100 GetAsync spams for the same key):*
-
-    - EliteDataStoreService: *2.8620037916698493 seconds | 100% success | 243 KB Peak memory usage*
-	
-    - DataStoreService: *2.8833942916826345 seconds | 100% success | 121 KB Peak memory usage*
-	
+    EliteDataStoreService: *2.8620037916698493 seconds | 100% success | 243 KB Peak memory usage*
+    DataStoreService: *2.8833942916826345 seconds | 100% success | 121 KB Peak memory usage*
     
 more benchmark tests coming soon (in-roblox benchmark included)
 
 **V1.6.0**
 - Coming soon...
-
+*--------------------------------------------------------
 # Code examples
 
 **1. Average code**
@@ -473,7 +449,6 @@ end
     ),
 	
     Returns: (boolean, any) - "Success flag and result from the method, or error if all retries fail"
-	
 },
 
 

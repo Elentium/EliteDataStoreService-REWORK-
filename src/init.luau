@@ -1,5 +1,5 @@
 --[[
-	EliteDataStoreService V1.5.0
+	EliteDataStoreService V1.6.0
 	
 	[by iamnotultra3 a.k.a Elite]
 	
@@ -14,8 +14,7 @@
 	- Strong argument checks for safer use
 	- Clean IntelliSense support
 	- Lightweight and efficient
-	- Exposes the same methods as DataStoreService (and more), but with
-	- built-in safety and better reliability
+	- Exposes the same methods as DataStoreService (and more), but with built-in safety and better reliability
 	- minimal overhead
 	- good logging
 
@@ -35,8 +34,6 @@
 	--------------------------------------------------------
 	- A basic understanding of DataStoreService is recommended:
 	"https://create.roblox.com/docs/reference/engine/classes/DataStoreService"
-	- The module keeps being enhanced in performance and features, there is also an upcoming CloudService module that is an all-in-one datastore solution, which uses EliteDataStoreService as middleware between the module and DataStores
-	- This module is never meant to be a full wrapper like ProfileStore, its just a layer of protection against most annoying downsides of DataStoreService, all control is given to you
 	--------------------------------------------------------
 	Best Practices
 	--------------------------------------------------------
@@ -61,78 +58,235 @@
 	
 	Update notes:
 	- All method names are changed (removed redundant Async in the names)
-	- Now all data store request methods(like GetAsync) firstly return success, and only then result
+	- Now all data store request methods(like Get) firstly return success, and only then result
 	- Update 1.6.0 is coming with even better performance and changes
 	
 	-- New Key Locking System --
 	The new key locking system is very different from the previous one,
 	main differences:
-	- linear vs smart processing: the old one used linear method (1 read at a time, 1 write at a time)
-	which could cause small desynchronizations to reading and writing,
-	and recently DataStoreService started allowing concurrent reads, 
-	so the old system became really outdated
-	- the new system on the other hand allows concurrent reads,
-	only if no write is happening and not even a single write request is pending
-	and the writes stay linear (however 1 more change is that no write can happen while read is happening)
-	this new approach solves a lot of issue, benefits:
-	- if a read is incoming while other writes are processing or pending,
-	the scripts are likely to read the new saved data from these writes, 
-	so this read will keep waiting until all writes are finished
-	- if a write is incoming, while read is happening, 
-	the scripts are likely to read the previous data since the write arrived after those reads
-	so it will yield until all reads are completed
-	it prevents more and more reads from flooding the queue by simply incrementing pending writes, which stops all further reads from haappening
-	there is one small weakness of the new system:
-	- if more and more writes spam requests, the reads will never get to happen
-	this is unlikely to happen since in normal environments requests spam almost never happen
-	and write budget will be exhausted anyway if spams occur for such a long period
-	it is fixable by simply adding PendingReads flag however write is more prioritized than reads
-	and might not fit normal environments as good,
-	in update V1.6.0 i will think about this and decide which method should i use
-	Thanks for reading!
+		- linear vs smart processing: the old one used linear method (1 read at a time, 1 write at a time)
+		which could cause small desynchronizations to reading and writing,
+		and recently DataStoreService started allowing concurrent reads, 
+		so the old system became really outdated
 
-	Useful resources to learn from:
-	- linked lists: "https://www.youtube.com/watch?v=DTEraIOfoS0",
-	- data stores: [
-		beginner: "https://youtu.be/H-cDbjd5-bs?si=UZ1IJfiFhw1_EI6n",
-		intermediate: "https://youtu.be/B446FyN1xtc?si=JoK9dPGpF1qva7HG",
-		advanced: "https://create.roblox.com/docs/reference/engine/classes/DataStoreService"
-	],
-	- metatables: "https://youtu.be/bk8UVm-gxBs?si=Kjga1m_VFFPrbeWo"
-	
-	
-	-- Benchmark tests(in studio) --
-	Test 1 (100 SetAsync spams for the same key):
-		EliteDataStoreService: 39.42210533330217 seconds | 100% success | 198 KB Peak memory usage
-		DataStoreService: 29.84927079168847 seconds | 31% success | 58 KB Peak memory usage
-	Test 2 (100 GetAsync spams for the same key):
-		EliteDataStoreService: 2.8620037916698493 seconds | 100% success | 243 KB Peak memory usage
-		DataStoreService: 2.8833942916826345 seconds | 100% success | 121 KB Peak memory usage
-		
-	more benchmark tests coming soon (in-roblox benchmark included)
+		- the new system on the other hand allows concurrent reads,
+		only if no write is happening and not even a single write request is pending
+		and the writes stay linear (however 1 more change is that no write can happen while read is happening)
+		this new approach solves a lot of issue, benefits:
+
+		- if a read is incoming while other writes are processing or pending,
+		the scripts are likely to read the new saved data from these writes, 
+		so this read will keep waiting until all writes are finished
+
+		- if a write is incoming, while read is happening, 
+		the scripts are likely to read the previous data since the write arrived after those reads
+		so it will yield until all reads are completed
+		it prevents more and more reads from flooding the queue by simply incrementing pending writes, which stops all further reads from happening
+
+	--------------------------------------------------------
+	V1.6.0
+	--------------------------------------------------------
+	- New method: EliteDataStoreService:SetConstant(Constant, Value)
+	- Added thread reusing
+	- Improved code quality
+	- Mini improvements
+
+	Thanks for reading!
 ]]
 --!strict
 --!optimize 2
---== Constants ==--
+-- // CONSTANTS \\ --
 -- 0 = none
 -- 1 = only warnings
 -- 2 = only warnings & process logs
 -- 3 = every log
 local LOG_LEVEL: number = 1
 
+-- if true, the processor will yield on shutdown to ensure all requests are processed
+local SHUTDOWN_YIELD: boolean = true
+
 -- GuardCall default config
 local DEFAULT_MAX_RETRIES: number = 5 -- how many attempts will it make until giving up
 local DEFAULT_RETRIES_INTERMISSION: number = 1 -- in seconds
 local DEFAULT_EXPONENTIAL_BACKOFF: boolean = true -- if disabled, the intermission will always be n, if disabled, the intermission will be n * attempts
 
---== Services ==--
+local CONSTANTS = {
+	LOG_LEVEL = true,
+	SHUTDOWN_YIELD = true,
+	DEFAULT_MAX_RETRIES = 5,
+	DEFAULT_RETRIES_INTERMISSION = 1,
+	DEFAULT_EXPONENTIAL_BACKOFF = true,
+}
+
+-- // SERVICES \\ --
 local DataStoreService: DataStoreService = game:GetService("DataStoreService")
 local RunService: RunService = game:GetService("RunService")
 
---== Variables ==--
+-- // MODULES \\ --
 local EliteDataStoreService = {}
-EliteDataStoreService.TotalRequests = 0 :: number
+local Thread = require("@self/thread")
 
+-- // TYPES \\ --
+export type EliteDataStoreService = {
+	-- Methods
+	GetDataStore: (
+		self: EliteDataStoreService,
+		name: string,
+		scope: string?,
+		options: DataStoreOptions?
+	) -> EliteDataStore,
+	GetOrderedDataStore: (self: EliteDataStoreService, name: string, scope: string?) -> EliteOrderedDataStore,
+	GetGlobalDataStore: (self: EliteDataStoreService) -> EliteDataStore,
+	GetRequestBudgetForRequestType: (self: EliteDataStoreService, RequestType: Enum.DataStoreRequestType) -> number,
+	ListDataStores: (
+		self: EliteDataStoreService,
+		prefix: string?,
+		pagesize: number?,
+		cursor: string?
+	) -> (boolean, EliteDataStorePages<DataStoreListingPagesEntry>),
+
+	-- Extras
+	SetIterationCycle: (self: EliteDataStoreService, seconds: number) -> (),
+	WaitForAllRequests: (self: EliteDataStoreService) -> (),
+	GetQueueSize: (self: EliteDataStoreService) -> number,
+	GetPriorityQueueSize: (self: EliteDataStoreService) -> number,
+	CheckDataStoreAccess: (self: EliteDataStoreService) -> "Access" | "NoAccess" | "NoInternet",
+	ReplaceDataStoreServiceWithCustomHandler: (self: EliteDataStoreService, Handler: any) -> (),
+	GuardCall: (
+		self: EliteDataStoreService,
+		method: (...any) -> (boolean, any),
+		MaxRetries: number?,
+		RetriesIntermission: number?,
+		ExponentialBackoff: boolean?,
+		...any
+	) -> (boolean, any),
+	SetConstant: (self: EliteDataStoreService, Constant: Constant, Value: any) -> (),
+}
+
+export type BaseEliteDataStore = {
+	-- Attributes
+	Name: string,
+	Scope: string?,
+	Ordered: boolean,
+
+	Get: (
+		self: BaseEliteDataStore,
+		key: string | number,
+		options: DataStoreGetOptions?,
+		prioritize: boolean?
+	) -> (boolean, any),
+	Set: (
+		self: BaseEliteDataStore,
+		key: string | number,
+		value: any,
+		userIds: { number }?,
+		options: DataStoreSetOptions?,
+		prioritize: boolean?
+	) -> (boolean, any),
+	Increment: (
+		self: BaseEliteDataStore,
+		key: string | number,
+		delta: number?,
+		userIds: { number }?,
+		options: DataStoreIncrementOptions?,
+		prioritize: boolean?
+	) -> (boolean, any),
+	Update: (
+		self: BaseEliteDataStore,
+		key: string | number,
+		transformFunction: (any) -> any,
+		prioritize: boolean?
+	) -> (boolean, any),
+	Remove: (self: BaseEliteDataStore, key: string | number, prioritize: boolean?) -> (boolean, any),
+
+	CanRead: (self: EliteDataStoreService, key: string | number) -> boolean,
+	CanWrite: (self: EliteDataStoreService, key: string | number) -> boolean,
+}
+
+export type EliteDataStore = BaseEliteDataStore & {
+	GetVersion: (
+		self: BaseEliteDataStore,
+		key: string | number,
+		version: string,
+		prioritize: boolean?
+	) -> (boolean, any),
+	GetVersionAtTime: (
+		self: BaseEliteDataStore,
+		key: string | number,
+		timestamp: number,
+		prioritize: boolean?
+	) -> (boolean, any),
+	ListVersions: (
+		self: BaseEliteDataStore,
+		key: string | number,
+		sortDirection: Enum.SortDirection,
+		pageSize: number,
+		minDate: number?,
+		maxDate: number?,
+		prioritize: boolean?
+	) -> (boolean, EliteDataStorePages<DataStoreVersionPagesEntry>),
+	ListKeys: (
+		self: BaseEliteDataStore,
+		prefix: string?,
+		pageSize: number?,
+		cursor: string?,
+		prioritize: boolean?
+	) -> (boolean, EliteDataStorePages<DataStoreKeyPagesEntry>),
+	RemoveVersion: (
+		self: BaseEliteDataStore,
+		key: string | number,
+		version: string,
+		prioritize: boolean?
+	) -> (boolean, any),
+}
+
+export type EliteOrderedDataStore = BaseEliteDataStore & {
+	GetSorted: (
+		self: BaseEliteDataStore,
+		ascending: boolean,
+		pageSize: number,
+		minValue: number?,
+		maxValue: number?,
+		prioritize: boolean?
+	) -> (boolean, EliteDataStorePages<DataStorePagesEntry>),
+}
+
+export type EliteDataStorePages<T = { any }> = {
+	GetCurrentPage: (self: any) -> { T },
+	AdvanceToNextPage: (self: any, prioritize: boolean?) -> (boolean, any),
+	IsFinished: (self: any) -> boolean,
+}
+
+export type DataStorePagesEntry = { key: string, value: number }
+export type DataStoreKeyPagesEntry = { KeyName: string }
+export type DataStoreVersionPagesEntry = { Version: string, CreatedTime: number, IsDeleted: boolean }
+export type DataStoreListingPagesEntry = { DataStoreName: string, CreatedTime: number }
+
+export type Request = {
+	RequestName: string,
+	RequestType: Enum.DataStoreRequestType,
+	DataStore: (DataStore | OrderedDataStore | Pages)?,
+	Key: string?,
+	KeyAccessMode: ("Read" | "Write")?,
+	ExtraData: { [string]: any }?,
+	Cor: thread,
+} & { [string]: any }
+
+export type QueueNode = {
+	Next: QueueNode?,
+	Request: Request,
+}
+
+export type Constant =
+	"LOG_LEVEL"
+	| "SHUTDOWN_YIELD"
+	| "DEFAULT_MAX_RETRIES"
+	| "DEFAULT_RETRIES_INTERMISSION"
+	| "DEFAULT_EXPONENTIAL_BACKOFF"
+
+export type Queue = { Head: QueueNode?, Tail: QueueNode?, Count: number } & { [string]: any }
+
+-- // STATIC \\ --
 -- the main processor that handles datastore requests with budget + key rate limiting
 local Processor = {
 	IterationCycle = 0.35 :: number, -- how often should the processor iterate through the queues
@@ -151,7 +305,7 @@ local Processor = {
 		-- UserIds: { number? }? (in this case: nil)
 		-- Options: DataStoreSetOptions? (in this case: nil)
 		-- Prioritize: boolean? (in this case: true, since we want to prioritize the request)
-		EliteDataStore:SetAsync("Scoreplayer1", 100, nil, nil, true)
+		EliteDataStore:Set("Scoreplayer1", 100, nil, nil, true)
 	]]
 	PriorityQueue = { Head = nil, Tail = nil, Count = 0 } :: Queue,
 	-- the third queue, it is being processed the first, but it is rarely having any requests
@@ -161,15 +315,13 @@ local Processor = {
 	DroppedRequests = { Head = nil, Tail = nil, Count = 0 } :: Queue,
 
 	-- the { Head, Tail, Count } structure in the queues is a linked-list implementation
-	-- if you want to learn linked lists, then consider watching this video "https://www.youtube.com/watch?v=DTEraIOfoS0"
 
 	-- `KeyRegistry` holds per-datastore per-key data for key locking
-	-- every key data structure is { Read: boolean, Write: boolean, RefCount: number }
-	-- Read is for stuff like GetAsync, GetVersionAsync, GetVersionAtTimeAsync
-	-- if you try to read a key multiple times at the same time, the DataStore will throttle the requests and even error
-	-- so the module ensures that there is only 1 per-key read/write operation at a time
-	-- the `RefCount` stores how many references exist for the key data,
-	-- when the RefCount is 0, it means there is not any read/write operation for the key and it removes the key data to free up memory
+	-- every key data structure is { Writing: boolean, ActiveReaders: number, PendingWrites: number, RefCount: number }
+	-- Writing is for stuff like Set, Increment, Update, Remove
+	-- ActiveReaders is for stuff like Get, GetVersion, GetVersionAtTime
+	-- PendingWrites is when there are currently active writes/reads happening
+	-- RefCount is how many references exist for the key data (prevents memory leaks & nil access)
 	KeyRegistry = {} :: {
 		[DataStore | OrderedDataStore]: {
 			[string]: { Writing: boolean, ActiveReaders: number, PendingWrites: number, RefCount: number }
@@ -180,9 +332,6 @@ local Processor = {
 	-- as i explained above, if certain key cannot Read or Write and there is an incoming request:
 	-- it inserts the request to certain mode coroutine waiters
 	-- whenever another request is finished = it resumes the first request in the queue and the chain continues
-	-- however there might be an edge case where 2 requests of the same key and mode have been called at the same time,
-	-- in this case it would be inefficient as i would have to implement confirmation chain
-	-- so we just enqueue the request to the `DroppedRequests` queue so the request gets safely processed in the next IterationCycle
 	KeyWaiters = {} :: {
 		[DataStore | OrderedDataStore]: {
 			[string]: {
@@ -206,7 +355,7 @@ local Processor = {
 -- Used to store EliteDataStore | EliteOrderedDataStore objects, when CreateDataStore called, checks if "{O | N}_{Name}_{Scope}" exists in cache, if it does = returns the cached object
 local DatastoresCache = {}
 
--- Stores per-datastore method handlers
+-- Stores datastore method handlers
 -- each handler accepts a RequestInfo table and returns a success, result OR success, err
 -- the handlers are called only after all rate validations have passed and the request is safe to call
 local Requests: {
@@ -217,7 +366,7 @@ local Requests: {
 		local datastore: DataStore | OrderedDataStore = RequestInfo.DataStore
 		local getOpts: DataStoreGetOptions? = RequestInfo.ExtraData.Options
 
-		local success: boolean, result: any = pcall(datastore.GetAsync, datastore, key, getOpts)
+		local success: boolean, result: any = pcall(datastore.GetAsync, datastore :: OrderedDataStore, key, getOpts)
 
 		return success, result
 	end,
@@ -241,13 +390,14 @@ local Requests: {
 	end,
 
 	SetAsync = function(RequestInfo: Request): (boolean, any)
-		local datastore: DataStore | OrderedDataStore = RequestInfo.DataStore
+		-- correct type would be DataStore | OrderedDataStore, but the type checker is not smart enough to understand that and it throws type errors
+		local datastore: DataStore = RequestInfo.DataStore
 		local key: string = RequestInfo.Key
 		local value: any = RequestInfo.ExtraData.Value
 		local userIds: { number }? = RequestInfo.ExtraData.UserIds
 		local opts = RequestInfo.ExtraData.Options
 		local success: boolean, result: any =
-			pcall(datastore.SetAsync, datastore, key, value, userIds :: { any }?, opts)
+			pcall(datastore.SetAsync, datastore, key, value, userIds :: { number }?, opts)
 		return success, result
 	end,
 
@@ -258,13 +408,14 @@ local Requests: {
 		local userIds: { number }? = RequestInfo.ExtraData.UserIds
 		local opts: DataStoreIncrementOptions? = RequestInfo.ExtraData.Options :: any
 		local success: boolean, result: number = pcall(function()
-			return datastore:IncrementAsync(key, delta, userIds :: { any }, opts) :: any
+			return datastore:IncrementAsync(key, delta, userIds :: { number }, opts) :: any
 		end)
 		return success, result
 	end,
 
 	UpdateAsync = function(RequestInfo: Request): (boolean, any)
-		local datastore: DataStore | OrderedDataStore = RequestInfo.DataStore
+		-- same thing as above
+		local datastore: DataStore = RequestInfo.DataStore
 		local key: string = RequestInfo.Key
 		local transform: (data: any) -> any = RequestInfo.ExtraData.TransformFunction
 		local success: boolean, result: any = pcall(datastore.UpdateAsync, datastore, key, transform)
@@ -272,14 +423,14 @@ local Requests: {
 	end,
 
 	RemoveAsync = function(RequestInfo: Request): (boolean, any)
-		local datastore: DataStore | OrderedDataStore = RequestInfo.DataStore
+		local datastore: DataStore = RequestInfo.DataStore
 		local key: string = RequestInfo.Key
 		local success: boolean, result: any = pcall(datastore.RemoveAsync, datastore, key)
 		return success, result
 	end,
 
 	GetVersionAsync = function(RequestInfo: Request): (boolean, any)
-		local datastore: DataStore = RequestInfo.DataStore :: DataStore
+		local datastore: DataStore = RequestInfo.DataStore
 		local key: string = RequestInfo.Key
 		local version: string = RequestInfo.ExtraData.Version
 		local success: boolean, result: any = pcall(datastore.GetVersionAsync, datastore, key, version)
@@ -287,7 +438,7 @@ local Requests: {
 	end,
 
 	GetVersionAtTimeAsync = function(RequestInfo: Request): (boolean, any)
-		local datastore: DataStore = RequestInfo.DataStore :: DataStore
+		local datastore: DataStore = RequestInfo.DataStore
 		local key: string = RequestInfo.Key
 		local timestamp: number = RequestInfo.ExtraData.Timestamp
 		local success: boolean, result: any = pcall(datastore.GetVersionAtTimeAsync, datastore, key, timestamp)
@@ -295,7 +446,7 @@ local Requests: {
 	end,
 
 	ListVersionsAsync = function(RequestInfo: Request): (boolean, DataStoreVersionPages)
-		local datastore: DataStore = RequestInfo.DataStore :: DataStore
+		local datastore: DataStore = RequestInfo.DataStore
 		local key: string = RequestInfo.Key
 		local sortDir: Enum.SortDirection? = RequestInfo.ExtraData.SortDirection
 		local pageSize: number? = RequestInfo.ExtraData.PageSize
@@ -307,7 +458,7 @@ local Requests: {
 	end,
 
 	ListKeysAsync = function(RequestInfo: Request): (boolean, DataStoreKeyPages)
-		local datastore: DataStore = RequestInfo.DataStore :: DataStore
+		local datastore: DataStore = RequestInfo.DataStore
 		local prefix: string? = RequestInfo.ExtraData.Prefix
 		local pageSize: number? = RequestInfo.ExtraData.PageSize
 		local cursor: string? = RequestInfo.ExtraData.Cursor
@@ -318,7 +469,7 @@ local Requests: {
 	end,
 
 	RemoveVersionAsync = function(RequestInfo: Request): (boolean, any)
-		local datastore: DataStore = RequestInfo.DataStore :: DataStore
+		local datastore: DataStore = RequestInfo.DataStore
 		local key: string = RequestInfo.Key
 		local version: string = RequestInfo.ExtraData.Version
 		local success: boolean, result: any = pcall(datastore.RemoveVersionAsync, datastore, key, version)
@@ -337,7 +488,7 @@ local Requests: {
 	end,
 }
 
---== Helper functions ==--
+-- // HELPER FUNCTIONS \\ --
 
 local function Log<T...>(level: number, ...: T...): ()
 	if level > LOG_LEVEL then
@@ -348,7 +499,7 @@ local function Log<T...>(level: number, ...: T...): ()
 	fn(`[{script.Name}] `, ...)
 end
 
-local function SafeThreadResume(thread: thread, ...)
+local function SafeThreadResume(thread: thread, ...): ()
 	if thread and coroutine.status(thread) == "suspended" then
 		task.spawn(thread, ...)
 		Log(3, `successfully resumed thread`)
@@ -357,7 +508,7 @@ local function SafeThreadResume(thread: thread, ...)
 	end
 end
 
--- Checks whether the key is valid for write/read/readwrite operation
+-- Checks whether the key is valid for write/read operation
 local function IsKeyValid(
 	Datastore: DataStore | OrderedDataStore | Pages,
 	Key: string?,
@@ -526,14 +677,9 @@ local function Dequeue(Queue: Queue): Request?
 	return Request
 end
 
-local function GenerateRequestId(): number
-	EliteDataStoreService.TotalRequests += 1
-	return EliteDataStoreService.TotalRequests
-end
-
 local function ProcessRequest(Request: Request): ()
-	task.spawn(function()
-		Log(2, `Processing current request(id: {Request.Id})`)
+	Thread(function()
+		Log(2, `Processing current request`)
 		if Request.Key then
 			Log(3, `Key exists, acquiring key lock`)
 			AcquireKeyLock(Request.DataStore :: any, Request.Key, Request.KeyAccessMode)
@@ -542,7 +688,7 @@ local function ProcessRequest(Request: Request): ()
 		if DataStoreService:GetRequestBudgetForRequestType(Request.RequestType) < 1 then
 			Log(
 				2,
-				`After key acquire the budget was exhausted, dropping the request to get it processed in the next iteration cycle(id: {Request.Id})`
+				`After key acquire the budget was exhausted, dropping the request to get it processed in the next iteration cycle`
 			)
 			-- while we waited for the key, the budget was exhausted, put the request to dropped requests to then process it
 			if Request.Key then
@@ -553,7 +699,7 @@ local function ProcessRequest(Request: Request): ()
 
 			return
 		end
-		Log(2, `All validations passed, processing the request(id: {Request.Id})`)
+		Log(2, `All validations passed, processing the request`)
 		local success, result = Requests[Request.RequestName](Request)
 		if Request.Key then
 			ReleaseKeyLock(Request.DataStore :: any, Request.Key, Request.KeyAccessMode)
@@ -566,7 +712,7 @@ local function ProcessRequest(Request: Request): ()
 end
 
 local function IsRequestValid(request: Request): boolean
-	Log(2, `Checking if request is valid (id: {request.Id})`)
+	Log(2, `Checking if request is valid`)
 	local RequestType = request.RequestType
 
 	if DataStoreService:GetRequestBudgetForRequestType(RequestType) <= 0 then
@@ -625,7 +771,9 @@ local function IterateThrough(Queue: Queue, QueueName: string): ()
 end
 
 local function AreQueuesEmpty(): boolean
-	return Processor.Queue.Count == 0 and Processor.PriorityQueue.Count == 0 and Processor.DroppedRequests.Count == 0
+	return Processor.QueueProcessing == false
+		and Processor.PriorityQueueProcessing == false
+		and Processor.DroppedRequestsProcessing == false
 end
 
 local function PerformDatastoreRequest(
@@ -638,7 +786,6 @@ local function PerformDatastoreRequest(
 	Prioritize: boolean?
 ): (boolean, any)
 	local Request = {
-		Id = GenerateRequestId(),
 		Key = Key,
 		KeyAccessMode = KeyAccessMode,
 		DataStore = DataStore,
@@ -687,7 +834,7 @@ local function PerformDatastoreRequest(
 	end
 end
 
---== Main loop ==--
+-- // MAIN LOOP \\ --
 
 local elapsed: number = 0
 RunService.Heartbeat:Connect(function(delta: number): ()
@@ -710,7 +857,7 @@ RunService.Heartbeat:Connect(function(delta: number): ()
 	end
 end)
 
---== Module API ==--
+-- // MODULE API \\ --
 
 local EliteDataStore = {}
 EliteDataStore.__index = EliteDataStore
@@ -740,9 +887,10 @@ local function CreateDataStore(
 	return self :: any
 end
 
-local function CreateEliteDataStorePages(PagesObj: Pages): EliteDataStorePages
+local function CreateEliteDataStorePages(PagesObj: Pages, RequestType: Enum.DataStoreRequestType): EliteDataStorePages
 	local self = setmetatable({}, EliteDataStorePages)
 	self.Pages = PagesObj
+	self.RequestType = RequestType
 	return self :: any
 end
 
@@ -751,21 +899,14 @@ function EliteDataStorePages:GetCurrentPage(): { any }
 end
 
 function EliteDataStorePages:AdvanceToNextPage(Prioritize: boolean?): (boolean, string?)
-	local success, err = PerformDatastoreRequest(
-		"AdvanceToNextPageAsync",
-		self.Pages,
-		nil,
-		nil,
-		Enum.DataStoreRequestType.GetSortedAsync,
-		nil,
-		Prioritize
-	)
+	local success, err =
+		PerformDatastoreRequest("AdvanceToNextPageAsync", self.Pages, nil, nil, self.RequestType, nil, Prioritize)
 
 	return success, err
 end
 
 function EliteDataStorePages:IsFinished(): boolean
-	return self.Pages.IsFinished == true
+	return self.Pages.IsFinished
 end
 
 function EliteDataStoreService:SetIterationCycle(n: number): ()
@@ -782,10 +923,10 @@ function EliteDataStoreService:GetGlobalDataStore(): EliteDataStore
 	end
 	local global = setmetatable({}, EliteDataStore)
 	global.DS = DataStoreService:GetGlobalDataStore()
-	self.Ordered = false
+	global.Ordered = false
 	Processor.KeyRegistry[global.DS] = {}
 	Processor.KeyWaiters[global.DS] = {}
-	DatastoresCache.___GLOBAL = self
+	DatastoresCache.___GLOBAL = global :: any
 	return global :: any
 end
 
@@ -809,7 +950,7 @@ function EliteDataStoreService:ListDataStores(
 		Prioritize
 	)
 
-	local pages: any = success and CreateEliteDataStorePages(result) or nil
+	local pages: any = success and CreateEliteDataStorePages(result, Enum.DataStoreRequestType.ListAsync) or nil
 	return success, pages or result
 end
 
@@ -895,6 +1036,24 @@ function EliteDataStoreService:ReplaceDataStoreServiceWithCustomHandler(Handler:
 	DataStoreService = Handler
 end
 
+function EliteDataStoreService:SetConstant(Constant: Constant, Value: any): ()
+	if not CONSTANTS[Constant] then
+		Log(1, `Invalid constant: {Constant}`)
+		return
+	end
+	if Constant == "DEFAULT_EXPONENTIAL_BACKOFF" then
+		DEFAULT_EXPONENTIAL_BACKOFF = Value
+	elseif Constant == "DEFAULT_RETRIES_INTERMISSION" then
+		DEFAULT_RETRIES_INTERMISSION = Value
+	elseif Constant == "DEFAULT_MAX_RETRIES" then
+		DEFAULT_MAX_RETRIES = Value
+	elseif Constant == "LOG_LEVEL" then
+		LOG_LEVEL = Value
+	elseif Constant == "SHUTDOWN_YIELD" then
+		SHUTDOWN_YIELD = Value
+	end
+end
+
 function EliteDataStore:CanRead(Key: string): boolean
 	return IsKeyValid(self.DS, Key, "Read")
 end
@@ -904,18 +1063,17 @@ function EliteDataStore:CanWrite(Key: string): boolean
 end
 
 function EliteDataStore:Get(Key: string, Options: DataStoreGetOptions?, Prioritize: boolean?): (boolean, any)
-	if not tostring(Key) then
+	local key = tostring(Key)
+	if not key then
 		error(`Invalid argument #1, string expected, got {typeof(Key)}`)
 	elseif Options ~= nil and (typeof(Options) ~= "Instance" or not (Options :: any):IsA("DataStoreGetOptions")) then
 		error(`Invalid argument #2, nil or DataStoreGetOptions expected, got {typeof(Options)}`)
 	end
 
-	Key = tostring(Key)
-
 	return PerformDatastoreRequest(
 		"GetAsync",
 		self.DS,
-		Key,
+		key,
 		"Read",
 		Enum.DataStoreRequestType.GetAsync,
 		{ Options = Options },
@@ -950,7 +1108,8 @@ function EliteDataStore:GetSorted(
 			MaxValue = MaxValue,
 		}, Prioritize)
 
-	local ElitePages: any = success and CreateEliteDataStorePages(result) or nil
+	local ElitePages: any = success and CreateEliteDataStorePages(result, Enum.DataStoreRequestType.GetSortedAsync)
+		or nil
 	return success, ElitePages or result
 end
 
@@ -961,25 +1120,17 @@ function EliteDataStore:Set(
 	Options: DataStoreSetOptions?,
 	Prioritize: boolean?
 ): (boolean, any)
-	if not tostring(Key) then
+	local key = tostring(Key)
+	if not key then
 		error(`Invalid argument #1, string expected, got {typeof(Key)}`)
 	end
-	if UserIds ~= nil and typeof(UserIds) ~= "table" then
-		error(`Invalid argument #3, table expected, got {typeof(UserIds)}`)
-	elseif Options ~= nil and (typeof(Options) ~= "Instance" or not Options:IsA("DataStoreSetOptions")) then
-		error(`Invalid argument #4, nil or DataStoreSetOptions expected, got {typeof(Options)}`)
-	elseif self.Ordered and typeof(Value) ~= "number" then
-		error(`Cannot save non-number data to Ordered Datastores`)
-	end
-
-	Key = tostring(Key)
 
 	local requestType = self.Ordered and Enum.DataStoreRequestType.SetIncrementSortedAsync
 		or Enum.DataStoreRequestType.SetIncrementAsync
 	return PerformDatastoreRequest(
 		"SetAsync",
 		self.DS,
-		Key,
+		key,
 		"Write",
 		requestType,
 		{ Value = Value, UserIds = UserIds, Options = Options },
@@ -988,17 +1139,17 @@ function EliteDataStore:Set(
 end
 
 function EliteDataStore:Update(Key: string, TransformFunction: (Data: any) -> any, Prioritize: boolean?): (boolean, any)
-	if not tostring(Key) then
+	local key = tostring(Key)
+	if not key then
 		error(`Invalid argument #1, string expected, got {typeof(Key)}`)
 	elseif typeof(TransformFunction) ~= "function" then
 		error(`Invalid argument #2, function expected, got {typeof(TransformFunction)}`)
 	end
-	Key = tostring(Key)
 
 	return PerformDatastoreRequest(
 		"UpdateAsync",
 		self.DS,
-		Key,
+		key,
 		"Write",
 		Enum.DataStoreRequestType.UpdateAsync,
 		{ TransformFunction = TransformFunction },
@@ -1007,15 +1158,14 @@ function EliteDataStore:Update(Key: string, TransformFunction: (Data: any) -> an
 end
 
 function EliteDataStore:Remove(Key: string, Prioritize: boolean?): (boolean, any)
-	if not tostring(Key) then
+	local key = tostring(Key)
+	if not key then
 		error(`Invalid argument #1, string expected, got {typeof(Key)}`)
 	end
 
-	Key = tostring(Key)
-
 	local requestType = self.Ordered and Enum.DataStoreRequestType.SetIncrementSortedAsync
 		or Enum.DataStoreRequestType.SetIncrementAsync
-	return PerformDatastoreRequest("RemoveAsync", self.DS, Key, "Write", requestType, nil, Prioritize)
+	return PerformDatastoreRequest("RemoveAsync", self.DS, key, "Write", requestType, nil, Prioritize)
 end
 
 function EliteDataStore:Increment(
@@ -1025,7 +1175,8 @@ function EliteDataStore:Increment(
 	Options: DataStoreIncrementOptions?,
 	Prioritize: boolean?
 ): (boolean, number)
-	if not tostring(Key) then
+	local key = tostring(Key)
+	if not key then
 		error(`Invalid argument #1, string expected, got {typeof(Key)}`)
 	elseif Delta ~= nil and typeof(Delta) ~= "number" then
 		error(`Invalid argument #2, number expected, got {typeof(Delta)}`)
@@ -1035,14 +1186,12 @@ function EliteDataStore:Increment(
 		error(`Invalid argument #4, nil or DataStoreIncrementOptions expected, got {typeof(Options)}`)
 	end
 
-	Key = tostring(Key)
-
 	local requestType = self.Ordered and Enum.DataStoreRequestType.SetIncrementSortedAsync
 		or Enum.DataStoreRequestType.SetIncrementAsync
 	return PerformDatastoreRequest(
 		"IncrementAsync",
 		self.DS,
-		Key,
+		key,
 		"Write",
 		requestType,
 		{ Delta = Delta, UserIds = UserIds, Options = Options },
@@ -1077,7 +1226,7 @@ function EliteDataStore:ListKeys(
 		Prioritize
 	)
 
-	local ElitePages = success and CreateEliteDataStorePages(result) or nil
+	local ElitePages = success and CreateEliteDataStorePages(result, Enum.DataStoreRequestType.ListAsync) or nil
 
 	return success, (ElitePages or result) :: any
 end
@@ -1090,7 +1239,8 @@ function EliteDataStore:ListVersions(
 	PageSize: number?,
 	Prioritize: boolean?
 ): (boolean, EliteDataStorePages<DataStoreVersionPagesEntry>)
-	if not tostring(Key) then
+	local key = tostring(Key)
+	if not key then
 		error(`Invalid argument #1, string expected, got {typeof(Key)}`)
 	elseif SortDirection ~= nil and typeof(SortDirection) ~= "EnumItem" then
 		error(`Invalid argument #2, Enum.SortDirection expected, got {typeof(SortDirection)}`)
@@ -1102,34 +1252,31 @@ function EliteDataStore:ListVersions(
 		error(`Invalid argument #5, number expected, got {typeof(PageSize)}`)
 	end
 
-	Key = tostring(Key)
-
 	local success, result = PerformDatastoreRequest(
 		"ListVersionsAsync",
 		self.DS,
-		Key,
+		key,
 		"Read",
 		Enum.DataStoreRequestType.ListAsync,
 		{ SortDirection = SortDirection, MinDate = MinDate, MaxDate = MaxDate, PageSize = PageSize },
 		Prioritize
 	)
-	local ElitePages = success and CreateEliteDataStorePages(result) or nil
+	local ElitePages = success and CreateEliteDataStorePages(result, Enum.DataStoreRequestType.ListAsync) or nil
 	return success, (ElitePages or result) :: any
 end
 
 function EliteDataStore:GetVersion(Key: string, Version: any, Prioritize: boolean?): (boolean, any)
-	if not tostring(Key) then
+	local key = tostring(Key)
+	if not key then
 		error(`Invalid argument #1, string expected, got {typeof(Key)}`)
 	elseif typeof(Version) ~= "string" then
 		error(`Invalid argument #2, string expected, got {typeof(Version)}`)
 	end
 
-	Key = tostring(Key)
-
 	return PerformDatastoreRequest(
 		"GetVersionAsync",
 		self.DS,
-		Key,
+		key,
 		"Read",
 		Enum.DataStoreRequestType.GetVersionAsync,
 		{ Version = Version },
@@ -1138,18 +1285,17 @@ function EliteDataStore:GetVersion(Key: string, Version: any, Prioritize: boolea
 end
 
 function EliteDataStore:GetVersionAtTime(Key: string, Timestamp: number, Prioritize: boolean?): (boolean, any)
-	if not tostring(Key) then
+	local key = tostring(Key)
+	if not key then
 		error(`Invalid argument #1, string expected, got {typeof(Key)}`)
 	elseif typeof(Timestamp) ~= "number" then
 		error(`Invalid argument #2, number expected, got {typeof(Timestamp)}`)
 	end
 
-	Key = tostring(Key)
-
 	return PerformDatastoreRequest(
 		"GetVersionAtTimeAsync",
 		self.DS,
-		Key,
+		key,
 		"Read",
 		Enum.DataStoreRequestType.GetVersionAsync,
 		{ Timestamp = Timestamp },
@@ -1158,18 +1304,17 @@ function EliteDataStore:GetVersionAtTime(Key: string, Timestamp: number, Priorit
 end
 
 function EliteDataStore:RemoveVersion(Key: string, Version: string, Prioritize: boolean?): (boolean, any)
-	if not tostring(Key) then
+	local key = tostring(Key)
+	if not key then
 		error(`Invalid argument #1, string expected, got {typeof(Key)}`)
 	elseif typeof(Version) ~= "string" then
 		error(`Invalid argument #2, string expected, got {typeof(Version)}`)
 	end
 
-	Key = tostring(Key)
-
 	return PerformDatastoreRequest(
 		"RemoveVersionAsync",
 		self.DS,
-		Key,
+		key,
 		"Write",
 		Enum.DataStoreRequestType.RemoveVersionAsync,
 		{ Version = Version },
@@ -1177,169 +1322,15 @@ function EliteDataStore:RemoveVersion(Key: string, Version: string, Prioritize: 
 	)
 end
 
---== Shutdown Handling ==--
+-- // SHUTDOWN HANDLING \\ --
 game:BindToClose(function(): ()
+	if not SHUTDOWN_YIELD then
+		return
+	end
 	task.wait(2) -- small delay for server scripts to handle shutdown
 	repeat
 		task.wait()
 	until Processor.FinishedAll
 end)
-
---== Type Annotations ==--
-
-export type EliteDataStoreService = {
-	-- Attributes
-	TotalRequests: number,
-
-	-- Methods
-	GetDataStore: (
-		self: EliteDataStoreService,
-		name: string,
-		scope: string?,
-		options: DataStoreOptions?
-	) -> EliteDataStore,
-	GetOrderedDataStore: (self: EliteDataStoreService, name: string, scope: string?) -> EliteOrderedDataStore,
-	GetGlobalDataStore: (self: EliteDataStoreService) -> EliteDataStore,
-	GetRequestBudgetForRequestType: (self: EliteDataStoreService, RequestType: Enum.DataStoreRequestType) -> number,
-	ListDataStores: (
-		self: EliteDataStoreService,
-		prefix: string?,
-		pagesize: number?,
-		cursor: string?
-	) -> (boolean, EliteDataStorePages<DataStoreListingPagesEntry>),
-
-	-- Extras
-	SetIterationCycle: (self: EliteDataStoreService, seconds: number) -> (),
-	WaitForAllRequests: (self: EliteDataStoreService) -> (),
-	GetQueueSize: (self: EliteDataStoreService) -> (),
-	GetPriorityQueueSize: (self: EliteDataStoreService) -> (),
-	CheckDataStoreAccess: (self: EliteDataStoreService) -> "Access" | "NoAccess" | "NoInternet",
-	ReplaceDataStoreServiceWithCustomHandler: (self: EliteDataStoreService, Handler: any) -> (),
-	GuardCall: (
-		self: EliteDataStoreService,
-		method: (...any) -> (boolean, any),
-		MaxRetries: number?,
-		RetriesIntermission: number?,
-		ExponentialBackoff: boolean?,
-		...any
-	) -> (boolean, any),
-}
-
-export type BaseEliteDataStore = {
-	-- Attributes
-	Name: string,
-	Scope: string?,
-	Ordered: boolean,
-
-	Get: (
-		self: BaseEliteDataStore,
-		key: string | number,
-		options: DataStoreGetOptions?,
-		prioritize: boolean?
-	) -> (boolean, any),
-	Set: (
-		self: BaseEliteDataStore,
-		key: string | number,
-		value: any,
-		userIds: { number }?,
-		options: DataStoreSetOptions?,
-		prioritize: boolean?
-	) -> (boolean, any),
-	Increment: (
-		self: BaseEliteDataStore,
-		key: string | number,
-		delta: number?,
-		userIds: { number }?,
-		options: DataStoreIncrementOptions?,
-		prioritize: boolean?
-	) -> (boolean, any),
-	Update: (
-		self: BaseEliteDataStore,
-		key: string | number,
-		transformFunction: (any) -> any,
-		prioritize: boolean?
-	) -> (boolean, any),
-	Remove: (self: BaseEliteDataStore, key: string | number, prioritize: boolean?) -> (boolean, any),
-
-	CanRead: (self: EliteDataStoreService, key: string | number) -> boolean,
-	CanWrite: (self: EliteDataStoreService, key: string | number) -> boolean,
-}
-
-export type EliteDataStore = BaseEliteDataStore & {
-	GetVersion: (
-		self: BaseEliteDataStore,
-		key: string | number,
-		version: string,
-		prioritize: boolean?
-	) -> (boolean, any),
-	GetVersionAtTime: (
-		self: BaseEliteDataStore,
-		key: string | number,
-		timestamp: number,
-		prioritize: boolean?
-	) -> (boolean, any),
-	ListVersions: (
-		self: BaseEliteDataStore,
-		key: string | number,
-		sortDirection: Enum.SortDirection,
-		pageSize: number,
-		minDate: number?,
-		maxDate: number?,
-		prioritize: boolean?
-	) -> (boolean, EliteDataStorePages<DataStoreVersionPagesEntry>),
-	ListKeys: (
-		self: BaseEliteDataStore,
-		Prefix: string?,
-		PageSize: number?,
-		Cursor: string?,
-		Prioritize: boolean?
-	) -> (boolean, EliteDataStorePages<DataStoreKeyPagesEntry>),
-	RemoveVersion: (
-		self: BaseEliteDataStore,
-		key: string | number,
-		Version: string,
-		Prioritize: boolean?
-	) -> (boolean, any),
-}
-
-export type EliteOrderedDataStore = BaseEliteDataStore & {
-	GetSorted: (
-		self: BaseEliteDataStore,
-		ascending: boolean,
-		pageSize: number,
-		minValue: number?,
-		maxValue: number?,
-		prioritize: boolean?
-	) -> (boolean, EliteDataStorePages<DataStorePagesEntry>),
-}
-
-export type EliteDataStorePages<T = { any }> = {
-	GetCurrentPage: (self: any) -> { T },
-	AdvanceToNextPage: (self: any, prioritize: boolean?) -> (boolean, any),
-	IsFinished: (self: any) -> boolean,
-}
-
-export type DataStorePagesEntry = { key: string, value: number }
-export type DataStoreKeyPagesEntry = { KeyName: string }
-export type DataStoreVersionPagesEntry = { Version: string, CreatedTime: number, IsDeleted: boolean }
-export type DataStoreListingPagesEntry = { DataStoreName: string, CreatedTime: number }
-
-export type Request = {
-	RequestName: string,
-	RequestType: Enum.DataStoreRequestType,
-	DataStore: (DataStore | OrderedDataStore | Pages)?,
-	Id: number,
-	Key: string?,
-	KeyAccessMode: ("Read" | "Write")?,
-	ExtraData: { [string]: any }?,
-	Cor: thread,
-} & { [string]: any }
-
-export type QueueNode = {
-	Next: QueueNode?,
-	Request: Request,
-}
-
-export type Queue = { Head: QueueNode?, Tail: QueueNode?, Count: number } & { [string]: any }
 
 return (EliteDataStoreService :: any) :: EliteDataStoreService
