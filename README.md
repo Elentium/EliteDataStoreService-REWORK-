@@ -1,98 +1,77 @@
-# EliteDataStoreService V1.6.0 [by iamnotultra3 a.k.a Elite]
-	
-**[APACHE 2.0 LICENSE]**
+# EliteDataStoreService V1.6.0
 
-*A powerful and efficient DataStoreService wrapper that handles most pain points for you, leaving you with big, yet safe control of data stores*
+**by iamnotultra3 a.k.a Elite** · [Apache 2.0 License](LICENSE)
 
+A powerful and efficient DataStoreService wrapper that handles most pain points for you, leaving you with full yet safe control of data stores.
 
-# What this module does
-- *Handles DataStore request limits for you (no more dropped calls)*
-- *Strong argument checks for safer use*
-- *Clean IntelliSense support*
-- *Lightweight and efficient, minimal overhead*
-- *Exposes the same methods as DataStoreService (and more), but with built-in safety and better reliability*
-- *minimal overhead*
-- *rich logging*
+---
 
-*--------------------------------------------------------
-# Why not just use DataStoreService?*
---------------------------------------------------------*
-**DataStoreService has a few big issues:**
+## What this module does
+
+- Handles DataStore request limits for you (no more dropped calls)
+- Strong argument checks for safer use
+- Clean IntelliSense support
+- Lightweight and efficient, minimal overhead
+- Exposes the same methods as DataStoreService (and more), with built-in safety and better reliability
+- Rich logging
+
+## Why not just use DataStoreService?
+
+DataStoreService has a few big issues:
+
 - Easy to hit request limits and lose calls
 - Errors can happen even if your code is correct
 - API surface is bloated and not always dev-friendly
 
-**This module solves those problems by queueing requests, validating inputs, and surfacing errors without sandboxing any functionality.**
+This module solves those problems by queueing requests, validating inputs, and surfacing errors without sandboxing any functionality.
 
+## Notes
 
-# Notes
-- Roblox still enforces the 4MB per key size limit
-- The module is battle tested, you do not have to worry about bugs! (if there is any issue(typo, small inconsistency) pls tell me)
-- A basic understanding of DataStoreService is recommended:
-"https://create.roblox.com/docs/reference/engine/classes/DataStoreService"
-- The module keeps being enhanced in performance and features, there is also an upcoming CloudService module that is an all-in-one datastore solution, which uses EliteDataStoreService as middleware between the module and DataStores
-- After some benchmark tests, this module showed almost no difference in performance compared to DataStoreService
-- This module is never meant to be a full wrapper like ProfileStore, its just a layer of protection against most annoying downsides of DataStoreService, almost all control is given to you
+- Roblox still enforces the 4MB per key size limit.
+- The module is battle-tested; if you find any issue (typo, small inconsistency) please report it.
+- A basic understanding of [DataStoreService](https://create.roblox.com/docs/reference/engine/classes/DataStoreService) is recommended.
+- The module keeps being enhanced; there is also an upcoming CloudService module (all-in-one datastore solution) that uses EliteDataStoreService as middleware.
+- After benchmark tests, this module showed almost no difference in performance compared to raw DataStoreService.
+- This module is not a full wrapper like ProfileStore—it is a layer of protection against the main downsides of DataStoreService; almost all control remains with you.
 
-# Best Practices
-- Prioritize Player Saves on Shutdown: During the game:BindToClose() event, set a flag in your saving logic to ensure all remaining player data saves use the prioritize = true argument. This allows player data saves to jump ahead of any lower-priority background tasks in the queue.
-- Check the success Flag: Always capture and check the first return value (success). If it's false, it means the underlying Roblox API call failed (e.g., internal service error, 500 error, etc.). You should log this and potentially revert any game-state changes associated with the failed operation.
+## Best Practices
 
+- **Prioritize player saves on shutdown:** In `game:BindToClose()`, ensure remaining player data saves use `prioritize = true` so they jump ahead of lower-priority tasks in the queue.
+- **Check the success flag:** Always capture and check the first return value (`success`). If it is `false`, the underlying Roblox API call failed; log it and consider reverting any game-state changes.
 
-# Github
-• "https://github.com/Elentium/EliteDataStoreService-REWORK-"
+## Links
 
-# Wally
---------------------------------------------------------*
-• "elentium/elitedatastoreservice@1.5.0"
-*--------------------------------------------------------
-# Update Logs (starting from V1.5.0)
---------------------------------------------------------*
-*--------------------------------------------------------
-# Update Logs (starting from V1.5.0)
---------------------------------------------------------*
-- New method: GuardCall
-- Improved IntelliSense
-- Added logging & configurations
-- Improved API & comments
-- Added wally support
-- Reduced default iteration cycle to 0.35 seconds
-- Changed key locking sytem(more on that below)
-	
-**Update notes:**
-- All method names are changed (removed redundant Async in the names)
-- Now all data store request methods(like GetAsync) firstly return success, and only then result
-- Update 1.6.0 is coming with even better performance and changes
+- **GitHub:** [Elentium/EliteDataStoreService-REWORK-](https://github.com/Elentium/EliteDataStoreService-REWORK-)
+- **Wally:** `elentium/elitedatastoreservice@1.5.0`
 
-**-- New Key Locking System (V1.5.0) --**
-The key locking system allows concurrent reads when no write is happening or pending, while writes stay linear. This ensures reads waiting during writes get fresh data, and writes waiting during reads preserve data consistency.
+## Changelog
 
-**Useful resources to learn from:**
-- *linked lists: "https://www.youtube.com/watch?v=DTEraIOfoS0"*,
-- *data stores:* [
-    *beginner: "https://youtu.be/H-cDbjd5-bs?si=UZ1IJfiFhw1_EI6n"*,
-    *intermediate: "https://youtu.be/B446FyN1xtc?si=JoK9dPGpF1qva7HG"*,
-    *advanced: "https://create.roblox.com/docs/reference/engine/classes/DataStoreService"*
-],
-- *metatables: "https://youtu.be/bk8UVm-gxBs?si=Kjga1m_VFFPrbeWo"*
+Version history and update notes are in [CHANGELOG.md](CHANGELOG.md).
 
+## Benchmarks (Studio)
 
-**-- Benchmark tests(in studio) --**
-*Test 1 (100 SetAsync spams for the same key):*
-    - EliteDataStoreService: *39.42210533330217 seconds | 100% success | 198 KB Peak memory usage*
-    - DataStoreService: *29.84927079168847 seconds | 31% success | 58 KB Peak memory usage*
-*Test 2 (100 GetAsync spams for the same key):*
-    EliteDataStoreService: *2.8620037916698493 seconds | 100% success | 243 KB Peak memory usage*
-    DataStoreService: *2.8833942916826345 seconds | 100% success | 121 KB Peak memory usage*
-    
-more benchmark tests coming soon (in-roblox benchmark included)
+**Test 1 — 100 SetAsync spams for the same key**
 
-**V1.6.0**
-- Coming soon...
-*--------------------------------------------------------
-# Code examples
+| Implementation        | Time (s) | Success | Peak memory |
+|-----------------------|----------|---------|-------------|
+| EliteDataStoreService | 39.42    | 100%    | 198 KB      |
+| DataStoreService      | 29.85    | 31%     | 58 KB       |
 
-**1. Average code**
+**Test 2 — 100 GetAsync spams for the same key**
+
+| Implementation        | Time (s) | Success | Peak memory |
+|-----------------------|----------|---------|-------------|
+| EliteDataStoreService | 2.86     | 100%    | 243 KB      |
+| DataStoreService      | 2.88     | 100%    | 121 KB      |
+
+More benchmark tests (including in-Roblox) coming soon.
+
+---
+
+## Code examples
+
+### 1. Average code
+
 ```luau
 --!strict
 local Players = game:GetService("Players")
@@ -158,7 +137,8 @@ end)
 ```
 
 
-**2. Leaderboard example**
+### 2. Leaderboard example
+
 ```luau
 --!strict
 local Players = game:GetService("Players")
@@ -248,9 +228,9 @@ while task.wait(300) do
 end
 ```
 
-# API
+## API
 
-- *EliteDataStoreService:GetDataStore(DataStoreName: string, Scope: string?, Options: DataStoreOptions?) -> EliteDataStore*
+- **EliteDataStoreService:GetDataStore**(DataStoreName: string, Scope: string?, Options: DataStoreOptions?) -> EliteDataStore*
 {
     Status: "Non-Yielding",
 	
@@ -271,7 +251,7 @@ end
 },
 
 
-- *EliteDataStoreService:GetGlobalDataStore() -> EliteDataStore* {
+- **EliteDataStoreService:GetGlobalDataStore() -> EliteDataStore** {
 
     Status: "Non-Yielding",
 	
@@ -284,7 +264,7 @@ end
 },
 
 
-- *EliteDataStoreService:GetOrderedDataStore(DataStoreName: string, Scope: string?) -> EliteOrderedDataStore* {
+- **EliteDataStoreService:GetOrderedDataStore(DataStoreName: string, Scope: string?) -> EliteOrderedDataStore** {
 
     Status: "Non-Yielding",
 	
@@ -302,7 +282,7 @@ end
 },
 
 
-- *EliteDataStoreService:GetRequestBudgetForRequestType(RequestType: Enum.DataStoreRequestType) -> number* {
+- **EliteDataStoreService:GetRequestBudgetForRequestType(RequestType: Enum.DataStoreRequestType) -> number** {
 
     Status: "Non-Yielding",
 	
@@ -319,7 +299,7 @@ end
 },
 
 
-- *EliteDataStoreService:ListDataStores(Prefix: string?, PageSize: number?, Cursor: string?, Prioritize: boolean?) -> (boolean, EliteDataStorePages<DataStoreListingPagesEntry>)* {
+- **EliteDataStoreService:ListDataStores(Prefix: string?, PageSize: number?, Cursor: string?, Prioritize: boolean?) -> (boolean, EliteDataStorePages<DataStoreListingPagesEntry>)** {
 
     Status: "Yielding",
 	
@@ -342,7 +322,7 @@ end
 },
 
 
-- *EliteDataStoreService:SetIterationCycle(seconds: number) -> ()* {
+- **EliteDataStoreService:SetIterationCycle(seconds: number) -> ()** {
 
     Status: "Non-Yielding",
 	
@@ -359,7 +339,7 @@ end
 },
 
 
-- *EliteDataStoreService:WaitForAllRequests() -> ()* {
+- **EliteDataStoreService:WaitForAllRequests() -> ()** {
 
     Status: "Yielding",
 	
@@ -372,7 +352,7 @@ end
 },
 
 
-- *EliteDataStoreService:GetQueueSize() -> number* {
+- **EliteDataStoreService:GetQueueSize() -> number** {
 
     Status: "Non-Yielding",
 	
@@ -385,7 +365,7 @@ end
 },
 
 
-- *EliteDataStoreService:GetPriorityQueueSize() -> number* {
+- **EliteDataStoreService:GetPriorityQueueSize() -> number** {
 
     Status: "Non-Yielding",
 	
@@ -398,7 +378,7 @@ end
 },
 
 
-- *EliteDataStoreService:CheckDataStoreAccess() -> 'Access' | 'NoAccess' | 'NoInternet'* {
+- **EliteDataStoreService:CheckDataStoreAccess() -> 'Access' | 'NoAccess' | 'NoInternet'** {
 
     Status: "Non-Yielding",
 	
@@ -411,7 +391,7 @@ end
 },
 
 
-- *EliteDataStoreService:ReplaceDataStoreServiceWithCustomHandler(Handler: typeof(DataStoreService)) -> ()* {
+- **EliteDataStoreService:ReplaceDataStoreServiceWithCustomHandler(Handler: typeof(DataStoreService)) -> ()** {
 
     Status: "Non-Yielding",
 	
@@ -428,7 +408,7 @@ end
 },
 
 
-- *EliteDataStoreService:GuardCall(Method: (...any) -> (boolean, any), MaxRetries: number?, RetriesIntermission: number?, ExponentialBackoff: boolean?, ...: any) -> (boolean, any)* {
+- **EliteDataStoreService:GuardCall(Method: (...any) -> (boolean, any), MaxRetries: number?, RetriesIntermission: number?, ExponentialBackoff: boolean?, ...: any) -> (boolean, any)** {
 
     Status: "Yielding",
 	
@@ -452,7 +432,7 @@ end
 },
 
 
-- *EliteDataStore:CanRead(Key: string | number) -> boolean* {
+- **EliteDataStore:CanRead(Key: string | number) -> boolean** {
 
     Status: "Non-Yielding",
 	
@@ -468,7 +448,7 @@ end
 	
 },
 
-- *EliteDataStore:CanWrite(Key: string | number) -> boolean* {
+- **EliteDataStore:CanWrite(Key: string | number) -> boolean** {
 
     Status: "Non-Yielding",
 	
@@ -484,7 +464,7 @@ end
 	
 },
 
-- *EliteDataStore:Get(Key: string | number, Options: DataStoreGetOptions?, Prioritize: boolean?) -> (boolean, any)* {
+- **EliteDataStore:Get(Key: string | number, Options: DataStoreGetOptions?, Prioritize: boolean?) -> (boolean, any)** {
 
     Status: "Yielding",
 	
@@ -504,7 +484,7 @@ end
 	
 },
 
-- *EliteDataStore:Set(Key: string | number, Value: any, UserIds: {number}?, Options: DataStoreSetOptions?, Prioritize: boolean?) -> (boolean, any)* {
+- **EliteDataStore:Set(Key: string | number, Value: any, UserIds: {number}?, Options: DataStoreSetOptions?, Prioritize: boolean?) -> (boolean, any)** {
 
     Status: "Yielding",
 	
@@ -528,7 +508,7 @@ end
 	
 },
 
-- *EliteDataStore:Increment(Key: string | number, Delta: number?, UserIds: {number}?, Options: DataStoreIncrementOptions?, Prioritize: boolean?) -> (boolean, number)* {
+- **EliteDataStore:Increment(Key: string | number, Delta: number?, UserIds: {number}?, Options: DataStoreIncrementOptions?, Prioritize: boolean?) -> (boolean, number)** {
 
     Status: "Yielding",
 	
@@ -553,7 +533,7 @@ end
 },
 
 
-- *EliteDataStore:Update(Key: string | number, TransformFunction: (any) -> any, Prioritize: boolean?) -> (boolean, any)* {
+- **EliteDataStore:Update(Key: string | number, TransformFunction: (any) -> any, Prioritize: boolean?) -> (boolean, any)** {
 
     Status: "Yielding",
 	
@@ -574,7 +554,7 @@ end
 },
 
 
-- *EliteDataStore:Remove(Key: string | number, Prioritize: boolean?) -> (boolean, any)* {
+- **EliteDataStore:Remove(Key: string | number, Prioritize: boolean?) -> (boolean, any)** {
 
     Status: "Yielding",
 	
@@ -591,7 +571,7 @@ end
 },
 
 
-- *EliteDataStore:GetVersion(Key: string | number, Version: string, Prioritize: boolean?) -> (boolean, any)* {
+- **EliteDataStore:GetVersion(Key: string | number, Version: string, Prioritize: boolean?) -> (boolean, any)** {
 
     Status: "Yielding",
 	
@@ -612,7 +592,7 @@ end
 },
 
 
-- *EliteDataStore:GetVersionAtTime(Key: string | number, Timestamp: number, Prioritize: boolean?) -> (boolean, any)* {
+- **EliteDataStore:GetVersionAtTime(Key: string | number, Timestamp: number, Prioritize: boolean?) -> (boolean, any)** {
 
     Status: "Yielding",
 	
@@ -633,7 +613,7 @@ end
 },
 
 
-- *EliteDataStore:ListVersions(Key: string | number, SortDirection: Enum.SortDirection?, MinDate: number?, MaxDate: number?, PageSize: number?, Prioritize: boolean?) -> (boolean, EliteDataStorePages<DataStoreVersionPagesEntry>)* {
+- **EliteDataStore:ListVersions(Key: string | number, SortDirection: Enum.SortDirection?, MinDate: number?, MaxDate: number?, PageSize: number?, Prioritize: boolean?) -> (boolean, EliteDataStorePages<DataStoreVersionPagesEntry>)** {
 
     Status: "Yielding",
 	
@@ -660,7 +640,7 @@ end
 },
 
 
-- *EliteDataStore:ListKeys(Prefix: string?, PageSize: number?, Cursor: string?, ExcludeDeleted: boolean?, Prioritize: boolean?) -> (boolean, EliteDataStorePages<DataStoreKeyPagesEntry>)* {
+- **EliteDataStore:ListKeys(Prefix: string?, PageSize: number?, Cursor: string?, ExcludeDeleted: boolean?, Prioritize: boolean?) -> (boolean, EliteDataStorePages<DataStoreKeyPagesEntry>)** {
 
     Status: "Yielding",
 	
@@ -685,7 +665,7 @@ end
 },
 
 
-- *EliteDataStore:RemoveVersion(Key: string | number, Version: string, Prioritize: boolean?) -> (boolean, any)* {
+- **EliteDataStore:RemoveVersion(Key: string | number, Version: string, Prioritize: boolean?) -> (boolean, any)** {
 
     Status: "Yielding",
 	
@@ -706,7 +686,7 @@ end
 },
 
 
-- *EliteOrderedDataStore:GetSorted(Ascending: boolean, PageSize: number, MinValue: number?, MaxValue: number?, Prioritize: boolean?) -> (boolean, EliteDataStorePages<DataStorePagesEntry>)* {
+- **EliteOrderedDataStore:GetSorted(Ascending: boolean, PageSize: number, MinValue: number?, MaxValue: number?, Prioritize: boolean?) -> (boolean, EliteDataStorePages<DataStorePagesEntry>)** {
 
     Status: "Yielding",
 	
@@ -731,7 +711,7 @@ end
 },
 
 
-- *EliteDataStorePages:GetCurrentPage() -> {any}* {
+- **EliteDataStorePages:GetCurrentPage() -> {any}** {
 
     Status: "Non-Yielding",
 	
@@ -744,7 +724,7 @@ end
 },
 
 
-- *EliteDataStorePages:AdvanceToNextPage(Prioritize: boolean?) -> (boolean, string?)* {
+- **EliteDataStorePages:AdvanceToNextPage(Prioritize: boolean?) -> (boolean, string?)** {
 
     Status: "Yielding",
 	
@@ -761,7 +741,7 @@ end
 },
 
 
-- *EliteDataStorePages:IsFinished() -> boolean* {
+- **EliteDataStorePages:IsFinished() -> boolean** {
 
     Status: "Non-Yielding",
 	
