@@ -18,12 +18,8 @@ local function threadCallback(thread: thread, fn: (...any) -> (), ...: any)
 		freeThreads[freeThreadsCount] = thread
 	end
 end
-local function threadLoop(thread: thread, fn: (...any) -> (), ...: any)
-	fn(...)
-	if freeThreadsCount < MAX_THREADS then
-		freeThreadsCount += 1
-		freeThreads[freeThreadsCount] = thread
-	end
+local function threadLoop(...: any)
+	threadCallback(...)
 	while true do
 		threadCallback(coroutine.yield())
 	end
