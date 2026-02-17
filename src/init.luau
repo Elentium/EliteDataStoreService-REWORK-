@@ -1011,7 +1011,7 @@ function EliteDataStoreService:CheckDataStoreAccess(): "NoAccess" | "NoInternet"
 	local no_internet_access = status == false and string.find(message, "ConnectFail", 1, true) ~= nil
 
 	if no_internet_access == true then
-		Log(1, `[{script.Name}]: No internet access - check your network connection`)
+		Log(1, `No internet access - check your network connection`)
 	end
 
 	if
@@ -1023,10 +1023,10 @@ function EliteDataStoreService:CheckDataStoreAccess(): "NoAccess" | "NoInternet"
 		)
 	then -- No internet access
 		new_state = if no_internet_access == true then "NoInternet" else "NoAccess"
-		Log(2, `[{script.Name}]: Roblox API services unavailable - data will not be saved`)
+		Log(2, `Roblox API services unavailable - data will not be saved`)
 	else
 		new_state = "Access"
-		Log(2, `[{script.Name}]: Roblox API services available - data will be saved`)
+		Log(2, `Roblox API services available - data will be saved`)
 	end
 
 	return new_state :: "Access" | "NoAccess" | "NoInternet"
