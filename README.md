@@ -42,7 +42,7 @@ This module solves those problems by queueing requests, validating inputs, and s
 ## Links
 
 - **GitHub:** [Elentium/EliteDataStoreService-REWORK-](https://github.com/Elentium/EliteDataStoreService-REWORK-)
-- **Wally:** `elentium/elitedatastoreservice@1.5.0`
+- **Wally:** `elentium/elitedatastoreservice@1.6.0`
 
 ## Changelog
 
